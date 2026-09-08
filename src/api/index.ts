@@ -1,8 +1,14 @@
 import axios from 'axios';
 
+const defaultBaseUrl =
+  typeof window !== 'undefined' &&
+  (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+    ? 'http://localhost:5000/api'
+    : 'https://dairy-management-backendd.onrender.com/api';
+
 const API = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:5000/api',
-  timeout: 10000,
+  baseURL: import.meta.env.VITE_API_URL || defaultBaseUrl,
+  timeout: 60000,
 });
 
 // Add a request interceptor to attach JWT token
