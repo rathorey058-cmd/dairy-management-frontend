@@ -1,0 +1,117 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary-50: #f4fbf7;
+  --color-primary-100: #e4f7eb;
+  --color-primary-200: #ceeedb;
+  --color-primary-300: #a7e0c0;
+  --color-primary-400: #7acb9d;
+  --color-primary-500: #52b07b;
+  --color-primary-600: #3e9162;
+  --color-primary-700: #337450;
+  --color-primary-800: #2a5d41;
+  --color-primary-900: #234c37;
+  --color-primary-950: #102a1d;
+
+  --color-dark-50: #f6f6f7;
+  --color-dark-100: #e1e2e5;
+  --color-dark-200: #c5c7ce;
+  --color-dark-300: #9fa3ae;
+  --color-dark-400: #757b8a;
+  --color-dark-500: #595f6e;
+  --color-dark-600: #464a57;
+  --color-dark-700: #3a3d47;
+  --color-dark-800: #2e3037;
+  --color-dark-900: #1d1e22;
+  --color-dark-950: #0d0d10;
+}
+
+body {
+  background-color: #0d0d10;
+  margin: 0;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Light Theme Overrides (Auto activated after 6:00 PM or manual light mode) */
+html.light,
+body.light {
+  background-color: #f4f6f9 !important;
+  color: #0f172a !important;
+}
+
+html.light .bg-dark-950 {
+  background-color: #f4f6f9 !important;
+}
+
+html.light .bg-dark-900 {
+  background-color: #ffffff !important;
+  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.05);
+}
+
+html.light .bg-dark-850 {
+  background-color: #f8fafc !important;
+}
+
+html.light .bg-dark-800 {
+  background-color: #f1f5f9 !important;
+}
+
+html.light .bg-dark-750 {
+  background-color: #e2e8f0 !important;
+}
+
+html.light .border-dark-800 {
+  border-color: #e2e8f0 !important;
+}
+
+html.light .border-dark-700 {
+  border-color: #cbd5e1 !important;
+}
+
+html.light .text-white {
+  color: #0f172a !important;
+}
+
+html.light .text-dark-50 {
+  color: #0f172a !important;
+}
+
+html.light .text-dark-100 {
+  color: #1e293b !important;
+}
+
+html.light .text-dark-200 {
+  color: #334155 !important;
+}
+
+html.light .text-dark-300 {
+  color: #475569 !important;
+}
+
+html.light .text-dark-400 {
+  color: #64748b !important;
+}
+
+html.light .text-dark-500 {
+  color: #64748b !important;
+}
+
+html.light input,
+html.light select,
+html.light textarea {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+}
+
+html.light header {
+  background-color: rgba(255, 255, 255, 0.9) !important;
+  border-bottom-color: #e2e8f0 !important;
+}
+
+html.light nav {
+  background-color: #ffffff !important;
+  border-top-color: #e2e8f0 !important;
+}
