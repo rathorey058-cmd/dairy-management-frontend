@@ -392,23 +392,20 @@ export const GeminiChatBoard: React.FC<{
     };
 
     recognition.onresult = (event: any) => {
-      let interim = '';
-      let final = '';
+      let finalTranscript = '';
+      let interimTranscriptText = '';
 
-      for (let i = event.resultIndex; i < event.results.length; ++i) {
+      for (let i = 0; i < event.results.length; ++i) {
+        const textChunk = event.results[i][0].transcript;
         if (event.results[i].isFinal) {
-          final += event.results[i][0].transcript;
+          finalTranscript += textChunk + ' ';
         } else {
-          interim += event.results[i][0].transcript;
+          interimTranscriptText += textChunk;
         }
       }
 
-      if (final) {
-        setInputQuery((prev) => (prev ? `${prev} ${final}` : final).trim());
-        setInterimTranscript('');
-      } else if (interim) {
-        setInterimTranscript(interim);
-      }
+      setInputQuery(finalTranscript.trim());
+      setInterimTranscript(interimTranscriptText.trim());
     };
 
     recognition.onerror = (event: any) => {
