@@ -167,22 +167,20 @@ export const VoiceAssistantModal: React.FC = () => {
     };
 
     recognition.onresult = (event: any) => {
-      let interim = '';
-      let final = '';
+      let finalTranscript = '';
+      let interimTranscript = '';
 
-      for (let i = event.resultIndex; i < event.results.length; ++i) {
+      for (let i = 0; i < event.results.length; ++i) {
+        const textChunk = event.results[i][0].transcript;
         if (event.results[i].isFinal) {
-          final += event.results[i][0].transcript;
+          finalTranscript += textChunk + ' ';
         } else {
-          interim += event.results[i][0].transcript;
+          interimTranscript += textChunk;
         }
       }
 
-      if (interim) setInterimText(interim);
-      if (final) {
-        setTranscript((prev) => (prev ? `${prev} ${final}` : final).trim());
-        setInterimText('');
-      }
+      setTranscript(finalTranscript.trim());
+      setInterimText(interimTranscript.trim());
     };
 
     recognition.onerror = (event: any) => {
