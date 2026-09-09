@@ -143,11 +143,22 @@ export const Login: React.FC = () => {
           <div className="mt-6 pt-4 border-t border-dark-800/80 space-y-2">
             <button
               type="button"
-              onClick={() => {
+              disabled={isSubmitting}
+              onClick={async () => {
                 setLoginId('owner@krishnadairy.com');
                 setPassword('password123');
+                setErrorMsg(null);
+                setIsSubmitting(true);
+                try {
+                  await login('owner@krishnadairy.com', 'password123');
+                  navigate('/');
+                } catch (err: any) {
+                  setErrorMsg(err.message || 'Login failed. Please try again.');
+                } finally {
+                  setIsSubmitting(false);
+                }
               }}
-              className="w-full py-2.5 px-3 rounded-2xl bg-teal-950/50 border border-teal-800/60 hover:border-teal-500 text-xs font-bold text-teal-300 transition-all flex items-center justify-center gap-2 active:scale-98"
+              className="w-full py-2.5 px-3 rounded-2xl bg-teal-950/50 border border-teal-800/60 hover:border-teal-500 text-xs font-bold text-teal-300 transition-all flex items-center justify-center gap-2 active:scale-98 disabled:opacity-50"
             >
               <span>🥛 1-Click Demo Login (Krishna Dairy)</span>
             </button>
