@@ -167,20 +167,43 @@ export const VoiceAssistantModal: React.FC = () => {
     };
 
     recognition.onresult = (event: any) => {
-      let finalTranscript = '';
-      let interimTranscript = '';
+      let finalTexts: string[] = [];
+      let currentInterim = '';
 
-      for (let i = 0; i < event.results.length; ++i) {
-        const textChunk = event.results[i][0].transcript;
-        if (event.results[i].isFinal) {
-          finalTranscript += textChunk + ' ';
+      for (let i = 0; i < event.results.length; i++) {
+        const item = event.results[i];
+        const text = (item[0]?.transcript || '').trim();
+        if (!text) continue;
+
+        if (item.isFinal) {
+          if (finalTexts.length > 0) {
+            const lastIndex = finalTexts.length - 1;
+            const lastText = finalTexts[lastIndex];
+
+            // If current text extends or contains last text (Android Chrome cumulative results), replace it
+            if (
+              text.toLowerCase().startsWith(lastText.toLowerCase()) ||
+              (text.length > lastText.length && text.toLowerCase().includes(lastText.toLowerCase()))
+            ) {
+              finalTexts[lastIndex] = text;
+            } else if (!lastText.toLowerCase().includes(text.toLowerCase())) {
+              finalTexts.push(text);
+            }
+          } else {
+            finalTexts.push(text);
+          }
         } else {
-          interimTranscript += textChunk;
+          currentInterim = text;
         }
       }
 
-      setTranscript(finalTranscript.trim());
-      setInterimText(interimTranscript.trim());
+      const cleanFinal = finalTexts.join(' ').trim();
+      if (currentInterim && cleanFinal.toLowerCase().includes(currentInterim.toLowerCase())) {
+        currentInterim = '';
+      }
+
+      setTranscript(cleanFinal);
+      setInterimText(currentInterim);
     };
 
     recognition.onerror = (event: any) => {
@@ -244,7 +267,7 @@ export const VoiceAssistantModal: React.FC = () => {
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
       recognitionRef.current?.stop();
       setIsListening(false);
-      const text = `${transcript} ${interimText}`.trim();
+      const text = transcript.trim() || interimText.trim();
       if (text) {
         handleProcessTranscript(text);
       }

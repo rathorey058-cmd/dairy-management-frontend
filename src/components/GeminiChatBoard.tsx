@@ -392,20 +392,43 @@ export const GeminiChatBoard: React.FC<{
     };
 
     recognition.onresult = (event: any) => {
-      let finalTranscript = '';
-      let interimTranscriptText = '';
+      let finalTexts: string[] = [];
+      let currentInterim = '';
 
-      for (let i = 0; i < event.results.length; ++i) {
-        const textChunk = event.results[i][0].transcript;
-        if (event.results[i].isFinal) {
-          finalTranscript += textChunk + ' ';
+      for (let i = 0; i < event.results.length; i++) {
+        const item = event.results[i];
+        const text = (item[0]?.transcript || '').trim();
+        if (!text) continue;
+
+        if (item.isFinal) {
+          if (finalTexts.length > 0) {
+            const lastIndex = finalTexts.length - 1;
+            const lastText = finalTexts[lastIndex];
+
+            // If current text extends or contains last text (Android Chrome cumulative results), replace it
+            if (
+              text.toLowerCase().startsWith(lastText.toLowerCase()) ||
+              (text.length > lastText.length && text.toLowerCase().includes(lastText.toLowerCase()))
+            ) {
+              finalTexts[lastIndex] = text;
+            } else if (!lastText.toLowerCase().includes(text.toLowerCase())) {
+              finalTexts.push(text);
+            }
+          } else {
+            finalTexts.push(text);
+          }
         } else {
-          interimTranscriptText += textChunk;
+          currentInterim = text;
         }
       }
 
-      setInputQuery(finalTranscript.trim());
-      setInterimTranscript(interimTranscriptText.trim());
+      const cleanFinal = finalTexts.join(' ').trim();
+      if (currentInterim && cleanFinal.toLowerCase().includes(currentInterim.toLowerCase())) {
+        currentInterim = '';
+      }
+
+      setInputQuery(cleanFinal);
+      setInterimTranscript(currentInterim);
     };
 
     recognition.onerror = (event: any) => {
@@ -430,7 +453,7 @@ export const GeminiChatBoard: React.FC<{
       }
       setIsListening(false);
 
-      const combinedText = `${inputQuery} ${interimTranscript}`.trim();
+      const combinedText = inputQuery.trim() || interimTranscript.trim();
       if (combinedText) {
         handleSendPrompt(combinedText, true);
       }
@@ -472,7 +495,7 @@ export const GeminiChatBoard: React.FC<{
       setIsListening(false);
 
       setTimeout(() => {
-        const combinedText = `${inputQuery} ${interimTranscript}`.trim();
+        const combinedText = inputQuery.trim() || interimTranscript.trim();
         if (combinedText) {
           handleSendPrompt(combinedText, true);
         }
