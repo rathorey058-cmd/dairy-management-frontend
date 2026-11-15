@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Calendar, ChevronDown } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 
 export interface DateRange {
   startDate: string; // YYYY-MM-DD
@@ -18,6 +19,7 @@ export const DateRangeFilter: React.FC<DateRangeFilterProps> = ({
   onChange,
   showPresets = true,
 }) => {
+  const { t, language } = useAuth();
   const [showCustomPicker, setShowCustomPicker] = useState(false);
 
   const getTodayStr = () => new Date().toISOString().split('T')[0];
@@ -42,22 +44,26 @@ export const DateRangeFilter: React.FC<DateRangeFilterProps> = ({
 
   const presets = [
     {
-      label: 'Today (आज)',
+      id: 'today',
+      label: t('today'),
       startDate: getTodayStr(),
       endDate: getTodayStr(),
     },
     {
-      label: 'Yesterday (कल)',
+      id: 'yesterday',
+      label: t('yesterday'),
       startDate: getYesterdayStr(),
       endDate: getYesterdayStr(),
     },
     {
-      label: 'Last 7 Days (7 दिन)',
+      id: 'last7Days',
+      label: t('last7Days'),
       startDate: getLast7DaysStr(),
       endDate: getTodayStr(),
     },
     {
-      label: 'This Month (महीना)',
+      id: 'thisMonth',
+      label: t('thisMonth'),
       startDate: getMonthStartStr(),
       endDate: getTodayStr(),
     },
@@ -77,7 +83,7 @@ export const DateRangeFilter: React.FC<DateRangeFilterProps> = ({
     onChange({
       startDate: newStart,
       endDate: value.endDate >= newStart ? value.endDate : newStart,
-      label: 'Custom Range',
+      label: t('customDate'),
     });
   };
 
@@ -86,7 +92,7 @@ export const DateRangeFilter: React.FC<DateRangeFilterProps> = ({
     onChange({
       startDate: value.startDate <= newEnd ? value.startDate : newEnd,
       endDate: newEnd,
-      label: 'Custom Range',
+      label: t('customDate'),
     });
   };
 
@@ -95,21 +101,21 @@ export const DateRangeFilter: React.FC<DateRangeFilterProps> = ({
   };
 
   return (
-    <div className="bg-dark-900 border border-dark-800 rounded-3xl p-3.5 shadow-md space-y-3">
+    <div className="bg-[#111827] border-2 border-slate-700/80 rounded-2xl p-3.5 shadow-xl space-y-3">
       {/* Top row with Active Date Display & Custom Toggle */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-xl bg-teal-950 border border-teal-800/60 flex items-center justify-center text-teal-400">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-xl bg-teal-500/20 border border-teal-500/50 flex items-center justify-center text-teal-400 shadow-sm">
             <Calendar className="w-4 h-4" />
           </div>
           <div>
-            <span className="text-[9px] font-extrabold uppercase tracking-wider text-dark-400">
-              Selected Date Range
+            <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+              {language === 'hi' ? 'चयनित अवधि' : 'Selected Date'}
             </span>
-            <p className="text-xs font-bold text-white">
+            <p className="text-xs sm:text-sm font-black text-white font-mono mt-0.5">
               {value.startDate === value.endDate
-                ? new Date(value.startDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
-                : `${new Date(value.startDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} - ${new Date(value.endDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}`}
+                ? new Date(value.startDate).toLocaleDateString(language === 'hi' ? 'hi-IN' : 'en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+                : `${new Date(value.startDate).toLocaleDateString(language === 'hi' ? 'hi-IN' : 'en-IN', { day: 'numeric', month: 'short' })} — ${new Date(value.endDate).toLocaleDateString(language === 'hi' ? 'hi-IN' : 'en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}`}
             </p>
           </div>
         </div>
@@ -117,31 +123,31 @@ export const DateRangeFilter: React.FC<DateRangeFilterProps> = ({
         <button
           type="button"
           onClick={() => setShowCustomPicker(!showCustomPicker)}
-          className={`px-3 py-1.5 rounded-xl border text-xs font-bold transition-all flex items-center gap-1.5 ${
+          className={`px-3 py-1.5 rounded-xl border-2 text-xs font-black transition-all flex items-center gap-1.5 shadow-sm ${
             showCustomPicker
-              ? 'bg-teal-600 text-white border-teal-500 shadow-md shadow-teal-500/20'
-              : 'bg-dark-950 text-dark-300 border-dark-800 hover:border-dark-700'
+              ? 'bg-teal-600 text-white border-teal-400 shadow-teal-500/30'
+              : 'bg-slate-800 text-slate-200 border-slate-700 hover:border-slate-500 hover:text-white'
           }`}
         >
-          <span>Custom Date</span>
+          <span>{t('customDate')}</span>
           <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showCustomPicker ? 'rotate-180' : ''}`} />
         </button>
       </div>
 
       {/* Preset Pills */}
       {showPresets && (
-        <div className="flex gap-1.5 overflow-x-auto pb-0.5 scrollbar-none">
+        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
           {presets.map((p) => {
             const active = isPresetActive(p) && !showCustomPicker;
             return (
               <button
-                key={p.label}
+                key={p.id}
                 type="button"
                 onClick={() => handleSelectPreset(p)}
-                className={`px-3 py-1.5 rounded-full text-[11px] font-bold whitespace-nowrap transition-all ${
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-black whitespace-nowrap transition-all shadow-sm ${
                   active
-                    ? 'bg-teal-600 text-white shadow-md shadow-teal-500/20'
-                    : 'bg-dark-950 border border-dark-800 text-dark-400 hover:text-dark-200'
+                    ? 'bg-gradient-to-r from-teal-500 to-emerald-500 text-slate-950 font-black shadow-teal-500/30'
+                    : 'bg-slate-800/90 border border-slate-700 text-slate-200 hover:text-white hover:bg-slate-700'
                 }`}
               >
                 {p.label}
@@ -153,27 +159,27 @@ export const DateRangeFilter: React.FC<DateRangeFilterProps> = ({
 
       {/* Custom Date Range Picker inputs */}
       {showCustomPicker && (
-        <div className="pt-2 border-t border-dark-800/80 grid grid-cols-2 gap-2 animate-fadeIn">
+        <div className="pt-3 border-t border-slate-800 grid grid-cols-1 sm:grid-cols-2 gap-3 animate-fadeIn">
           <div>
-            <label className="block text-[9px] font-bold text-dark-400 uppercase tracking-wider mb-1">
-              From Date (शुरुआती तारीख़)
+            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+              {language === 'hi' ? 'प्रारंभ तिथि (From Date)' : 'From Date'}
             </label>
             <input
               type="date"
               value={value.startDate}
               onChange={handleCustomStartChange}
-              className="w-full px-2.5 py-1.5 rounded-xl bg-dark-950 border border-dark-800 text-xs text-white focus:outline-none focus:border-teal-500 font-mono"
+              className="w-full px-3 py-2 rounded-xl bg-slate-900 border-2 border-slate-700 text-xs text-white focus:outline-none focus:border-teal-400 font-mono"
             />
           </div>
           <div>
-            <label className="block text-[9px] font-bold text-dark-400 uppercase tracking-wider mb-1">
-              To Date (अंतिम तारीख़)
+            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+              {language === 'hi' ? 'अंतिम तिथि (To Date)' : 'To Date'}
             </label>
             <input
               type="date"
               value={value.endDate}
               onChange={handleCustomEndChange}
-              className="w-full px-2.5 py-1.5 rounded-xl bg-dark-950 border border-dark-800 text-xs text-white focus:outline-none focus:border-teal-500 font-mono"
+              className="w-full px-3 py-2 rounded-xl bg-slate-900 border-2 border-slate-700 text-xs text-white focus:outline-none focus:border-teal-400 font-mono"
             />
           </div>
         </div>

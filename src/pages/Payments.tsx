@@ -3,8 +3,9 @@ import API from '../api';
 import { useAuth } from '../context/AuthContext';
 import { 
   Wallet, ArrowDownCircle, ArrowUpCircle, CheckCircle, 
-  ShieldAlert, FileText, Printer, Share2
+  ShieldAlert, FileText, Printer, Share2, Calendar
 } from 'lucide-react';
+import { FarmerCycleBillingSheet } from '../components/farmer/FarmerCycleBillingSheet';
 
 interface FarmerObj {
   _id: string;
@@ -35,7 +36,7 @@ export const Payments: React.FC = () => {
   const [detailsLoading, setDetailsLoading] = useState(false);
 
   // Tab mode
-  const [mode, setMode] = useState<'advance' | 'payment' | 'settlement'>('payment');
+  const [mode, setMode] = useState<'10_day_billing' | 'payment' | 'advance' | 'settlement'>('10_day_billing');
 
   // Input states
   const [amount, setAmount] = useState('');
@@ -213,34 +214,46 @@ export const Payments: React.FC = () => {
         )}
 
         {/* Tab mode switches */}
-        <div className="grid grid-cols-3 gap-2 bg-dark-950 p-1.5 rounded-2xl border border-dark-800 mb-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-dark-950 p-1.5 rounded-2xl border border-dark-800 mb-4">
+          <button
+            onClick={() => { setMode('10_day_billing'); setReceiptData(null); setSuccessMsg(null); }}
+            className={`py-2 px-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+              mode === '10_day_billing' ? 'bg-indigo-600 text-white shadow-md' : 'text-dark-400 hover:text-white'
+            }`}
+          >
+            <Calendar className="w-3.5 h-3.5" />
+            <span>10-दिवसीय बिलिंग</span>
+          </button>
           <button
             onClick={() => { setMode('payment'); setReceiptData(null); setSuccessMsg(null); }}
             className={`py-2 rounded-xl text-xs font-bold transition-all ${
-              mode === 'payment' ? 'bg-purple-600 text-white shadow-md' : 'text-dark-400'
+              mode === 'payment' ? 'bg-purple-600 text-white shadow-md' : 'text-dark-400 hover:text-white'
             }`}
           >
-            Make Payment
+            भुगतान (Make Payment)
           </button>
           <button
             onClick={() => { setMode('advance'); setReceiptData(null); setSuccessMsg(null); }}
             className={`py-2 rounded-xl text-xs font-bold transition-all ${
-              mode === 'advance' ? 'bg-purple-600 text-white shadow-md' : 'text-dark-400'
+              mode === 'advance' ? 'bg-purple-600 text-white shadow-md' : 'text-dark-400 hover:text-white'
             }`}
           >
-            Give Advance
+            एडवांस दें (Give Advance)
           </button>
           <button
             onClick={() => { setMode('settlement'); setReceiptData(null); setSuccessMsg(null); }}
             className={`py-2 rounded-xl text-xs font-bold transition-all ${
-              mode === 'settlement' ? 'bg-purple-600 text-white shadow-md' : 'text-dark-400'
+              mode === 'settlement' ? 'bg-purple-600 text-white shadow-md' : 'text-dark-400 hover:text-white'
             }`}
           >
-            Settle Account
+            खाता निपटान (Settle)
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        {mode === '10_day_billing' ? (
+          <FarmerCycleBillingSheet />
+        ) : (
+          <form onSubmit={handleSubmit} className="space-y-4">
           {/* Farmer suggestion */}
           <div>
             <label className="block text-xs font-bold text-dark-400 uppercase tracking-wider mb-1.5">
@@ -381,6 +394,7 @@ export const Payments: React.FC = () => {
             </span>
           </button>
         </form>
+        )}
       </div>
 
       {/* Printable Settlement Receipt Box */}

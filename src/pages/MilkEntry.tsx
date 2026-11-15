@@ -1,10 +1,10 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import API from '../api';
 import { useAuth } from '../context/AuthContext';
 import { DateRangeFilter, type DateRange } from '../components/DateRangeFilter';
 import { DirectMilkSaleModal } from '../components/DirectMilkSaleModal';
-import { Droplets, Shield, HelpCircle, Save, CheckCircle2, SendHorizontal } from 'lucide-react';
+import { Droplets, Shield, HelpCircle, Save, CheckCircle2, SendHorizontal, Camera, Sparkles } from 'lucide-react';
 
 interface FarmerObj {
   _id: string;
@@ -31,6 +31,7 @@ interface RateChart {
 
 export const MilkEntry: React.FC = () => {
   useAuth();
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   
   // Data lists
@@ -39,6 +40,10 @@ export const MilkEntry: React.FC = () => {
   const [recentEntries, setRecentEntries] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isMilkSaleOpen, setIsMilkSaleOpen] = useState(false);
+
+  // Quick Camera Scan State
+  const [isQuickScanning, setIsQuickScanning] = useState(false);
+  const [quickScanStatus, setQuickScanStatus] = useState<string | null>(null);
 
   const qDate = searchParams.get('date') || searchParams.get('startDate');
   const todayStr = new Date().toISOString().split('T')[0];
@@ -147,7 +152,10 @@ export const MilkEntry: React.FC = () => {
     else if (milkType === 'Buffalo') rules = rateChart.buffaloRules;
     else rules = rateChart.mixedRules;
 
-    if (!rules || rules.length === 0) return 0;
+    if (!rules || rules.length === 0) {
+      const baseFatRate = milkType === 'Buffalo' ? 9.0 : 7.5;
+      return Math.round((fatVal * baseFatRate) * 10) / 10;
+    }
 
     if (rateChart.pricingType === 'FAT_ONLY') {
       const exactMatch = rules.find(r => Math.abs(r.fat - fatVal) < 0.01);
@@ -187,6 +195,32 @@ export const MilkEntry: React.FC = () => {
     f.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     f.farmerId.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  const handleQuickCameraScan = async () => {
+    setIsQuickScanning(true);
+    setQuickScanStatus(null);
+    try {
+      const res = await API.post('/cameras/capture-ocr', {});
+      const ocr = res.data.ocrResult;
+      if (ocr.weight !== null && ocr.weight !== undefined) {
+        setQuantity(ocr.weight.toString());
+      }
+      if (ocr.fat !== null && ocr.fat !== undefined) {
+        setFat(ocr.fat.toString());
+      }
+      if (ocr.snf !== null && ocr.snf !== undefined) {
+        setSnf(ocr.snf.toString());
+      }
+      if (res.data.matchedFarmer) {
+        setSelectedFarmerId(res.data.matchedFarmer._id);
+      }
+      setQuickScanStatus(`AI Scanned: ${ocr.weight ?? '--'}L | FAT: ${ocr.fat ?? '--'}%`);
+    } catch (e: any) {
+      setQuickScanStatus('कैमरा स्कैन विफल। Hikvision कनेक्शन चेक करें।');
+    } finally {
+      setIsQuickScanning(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -307,6 +341,45 @@ export const MilkEntry: React.FC = () => {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           
+          {/* AI Camera Quick Scan Widget */}
+          <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-2xl bg-gradient-to-r from-indigo-950/40 via-purple-950/20 to-dark-950 border border-indigo-500/30">
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 rounded-xl bg-indigo-500/10 border border-indigo-500/30 text-indigo-400">
+                <Camera className="w-4 h-4" />
+              </div>
+              <div>
+                <h4 className="text-xs font-bold text-white flex items-center gap-1.5">
+                  <span>Hikvision AI Camera Auto-Read</span>
+                  <span className="text-[10px] px-1.5 py-0.2 rounded bg-indigo-500/20 text-indigo-300 font-mono">Gemini Vision</span>
+                </h4>
+                <p className="text-[10px] text-dark-400">
+                  {quickScanStatus || 'कांटा व फैट मशीन की स्क्रीन ऑटो-रीड करें'}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleQuickCameraScan}
+                disabled={isQuickScanning}
+                className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-md shadow-indigo-600/20 transition-all active:scale-95 disabled:opacity-50 flex items-center gap-1.5"
+              >
+                <Sparkles className={`w-3.5 h-3.5 ${isQuickScanning ? 'animate-spin' : ''}`} />
+                <span>{isQuickScanning ? 'स्कैन हो रहा है...' : '⚡ कांटा व फैट स्कैन'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => navigate('/ai-camera')}
+                className="px-2.5 py-2 rounded-xl bg-dark-800 hover:bg-dark-750 text-indigo-300 border border-indigo-500/30 text-xs font-semibold"
+                title="फुल AI कैमरा हब खोलें"
+              >
+                फुल हब ↗
+              </button>
+            </div>
+          </div>
+
           {/* Farmer Selection */}
           <div>
             <label className="block text-xs font-bold text-dark-400 uppercase tracking-wider mb-1.5">

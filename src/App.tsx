@@ -17,20 +17,53 @@ import { Assistant } from './pages/Assistant';
 import { Menu } from './pages/Menu';
 import { MilkBandhiPage } from './pages/MilkBandhiPage';
 import { DuePaymentsPage } from './pages/DuePaymentsPage';
+import { AICameraHub } from './pages/AICameraHub';
 import { ThemeProvider } from './context/ThemeContext';
 
 const App: React.FC = () => {
   React.useEffect(() => {
     const handleBackButton = () => {
-      if (window.location.hash === '#/' || window.location.hash === '') {
-        (window as any).Capacitor?.Plugins?.App?.exitApp();
+      const hash = window.location.hash || '';
+      const isRootOrLogin = hash === '#/' || hash === '' || hash === '#' || hash === '#/login';
+
+      if (isRootOrLogin) {
+        // Exit app only if on root or login
+        if ((window as any).Capacitor?.Plugins?.App?.exitApp) {
+          (window as any).Capacitor.Plugins.App.exitApp();
+        }
       } else {
-        window.history.back();
+        // Safe navigation: go back in history, or fallback to home dashboard '#/'
+        if (window.history.length > 1) {
+          window.history.back();
+        } else {
+          window.location.hash = '#/';
+        }
       }
     };
+
+    // Standard Android / Capacitor hardware back button event
     document.addEventListener('backbutton', handleBackButton);
+
+    // Capacitor App Plugin listener if registered natively
+    let capListenerPromise: Promise<any> | null = null;
+    const CapApp = (window as any).Capacitor?.Plugins?.App;
+    if (CapApp && typeof CapApp.addListener === 'function') {
+      try {
+        capListenerPromise = CapApp.addListener('backButton', () => {
+          handleBackButton();
+        });
+      } catch (e) {}
+    }
+
     return () => {
       document.removeEventListener('backbutton', handleBackButton);
+      if (capListenerPromise) {
+        capListenerPromise.then((listener: any) => {
+          if (listener && typeof listener.remove === 'function') {
+            listener.remove();
+          }
+        }).catch(() => {});
+      }
     };
   }, []);
 
@@ -237,6 +270,26 @@ const App: React.FC = () => {
               <ProtectedRoute>
                 <DashboardLayout>
                   <DuePaymentsPage />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/ai-camera"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <AICameraHub />
+                </DashboardLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/camera"
+            element={
+              <ProtectedRoute>
+                <DashboardLayout>
+                  <AICameraHub />
                 </DashboardLayout>
               </ProtectedRoute>
             }

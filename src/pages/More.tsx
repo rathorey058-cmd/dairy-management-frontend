@@ -1,24 +1,29 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { 
   Users, FileText, Settings, Wallet, ArrowUpRight, Layers, Lock, UtensilsCrossed,
-  Truck, CreditCard
+  Truck, CreditCard, Camera, Sparkles, ShieldCheck
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { FirstTimeSetupWizard } from '../components/onboarding/FirstTimeSetupWizard';
+import { DpdpComplianceModal } from '../components/common/DpdpComplianceModal';
 
 export const More: React.FC = () => {
   const { t, user } = useAuth();
   const navigate = useNavigate();
+  const [isWizardOpen, setIsWizardOpen] = useState(false);
+  const [isDpdpOpen, setIsDpdpOpen] = useState(false);
 
   const menuGroups = [
     {
       title: "Daily Operations & Customers",
       items: [
+        { label: "10-दिवसीय बिलिंग व भुगतान (Farmer Billing)", icon: Wallet, path: '/payments', color: 'text-emerald-400 bg-emerald-950/40 border-emerald-900/30' },
+        { label: "AI Camera & 2-Line Theft Alerts", icon: Camera, path: '/ai-camera', color: 'text-indigo-400 bg-indigo-950/40 border-indigo-900/30' },
         { label: "दूध बांधी रजिस्टर (Daily Household Delivery)", icon: Truck, path: '/bandhi', color: 'text-amber-400 bg-amber-950/40 border-amber-900/30' },
         { label: "उधारी व बकाया खाता (Customer Dues & Ledger)", icon: CreditCard, path: '/udhari', color: 'text-rose-400 bg-rose-950/40 border-rose-900/30' },
         { label: "Product Menu & Barcode Scanner", icon: UtensilsCrossed, path: '/menu', color: 'text-teal-400 bg-teal-950/40 border-teal-900/30' },
         { label: t('farmers'), icon: Users, path: '/farmers', color: 'text-emerald-400 bg-emerald-950/40 border-emerald-900/30' },
-        { label: "Payments & Advances", icon: Wallet, path: '/payments', color: 'text-purple-400 bg-purple-950/40 border-purple-900/30' },
         { label: t('production'), icon: Layers, path: '/production', color: 'text-amber-400 bg-amber-950/40 border-amber-900/30' },
       ]
     },
@@ -34,6 +39,18 @@ export const More: React.FC = () => {
     {
       title: "System settings",
       items: [
+        { 
+          label: "डेयरी प्रोफाइल, भाव व 10-दिवसीय चक्र (Setup Wizard)", 
+          icon: Sparkles, 
+          action: () => setIsWizardOpen(true), 
+          color: 'text-indigo-400 bg-indigo-950/40 border-indigo-900/30' 
+        },
+        { 
+          label: "DPDP Act, 2023 सुरक्षा व नोटिस बोर्ड (Privacy & Notice)", 
+          icon: ShieldCheck, 
+          action: () => setIsDpdpOpen(true), 
+          color: 'text-emerald-400 bg-emerald-950/40 border-emerald-900/30' 
+        },
         { label: t('settings'), icon: Settings, path: '/more?section=settings', color: 'text-dark-300 bg-dark-900 border-dark-800' },
       ]
     }
@@ -63,12 +80,18 @@ export const More: React.FC = () => {
               {group.title}
             </h4>
             <div className="bg-dark-900 border border-dark-800 rounded-3xl overflow-hidden divide-y divide-dark-800/50 shadow-sm">
-              {group.items.map((item, itemIdx) => {
+              {group.items.map((item: any, itemIdx) => {
                 const Icon = item.icon;
                 return (
                   <button
                     key={itemIdx}
-                    onClick={() => navigate(item.path)}
+                    onClick={() => {
+                      if (item.action) {
+                        item.action();
+                      } else if (item.path) {
+                        navigate(item.path);
+                      }
+                    }}
                     className="w-full px-4 py-3.5 flex items-center justify-between hover:bg-dark-850 transition-colors text-left"
                   >
                     <div className="flex items-center gap-3">
@@ -86,10 +109,22 @@ export const More: React.FC = () => {
         ))}
       </div>
 
+      {/* Setup Wizard Modal */}
+      <FirstTimeSetupWizard
+        isOpen={isWizardOpen}
+        onClose={() => setIsWizardOpen(false)}
+      />
+
+      {/* DPDP Compliance & Shop Notice Modal */}
+      <DpdpComplianceModal
+        isOpen={isDpdpOpen}
+        onClose={() => setIsDpdpOpen(false)}
+      />
+
       {/* System info */}
       <div className="text-center space-y-1 py-4">
-        <p className="text-[10px] text-dark-500 font-bold tracking-wider">DAIRY SMART AI SAAS V1.0.0</p>
-        <p className="text-[9px] text-dark-600 font-medium">Krishna Dairy • Managed Isolated Tenant Node</p>
+        <p className="text-[10px] text-dark-500 font-bold tracking-wider">DAIRY SMART AI SAAS V2.0.0</p>
+        <p className="text-[9px] text-dark-600 font-medium">10-Day Cycle • Multi-Mic AI Audit • Zero-Cost Edge Engine</p>
       </div>
 
     </div>

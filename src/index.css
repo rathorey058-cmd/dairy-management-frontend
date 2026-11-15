@@ -27,11 +27,131 @@
 }
 
 body {
-  background-color: #0d0d10;
+  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background-color: #0b0c10;
+  color: #f1f5f9;
   margin: 0;
   padding: 0;
   -webkit-tap-highlight-color: transparent;
   transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Modern Smooth Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.28);
+}
+
+/* ==========================================================
+   3D Realistic Visual Effects & Glassmorphism
+   ========================================================== */
+
+/* 3D Glass Surface with Deep Blur and Specular Highlight */
+.glass-3d-card {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.07) 0%, rgba(255, 255, 255, 0.02) 100%);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 
+    0 20px 40px -15px rgba(0, 0, 0, 0.6),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.4);
+  transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+}
+
+.glass-3d-card:hover {
+  transform: translateY(-3px) scale(1.008);
+  border-color: rgba(255, 255, 255, 0.22);
+  box-shadow: 
+    0 30px 60px -20px rgba(0, 0, 0, 0.8),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.5);
+}
+
+/* 3D Tactile Push Button (Satisfying Physical Click Feel) */
+.btn-3d-emerald {
+  background: linear-gradient(180deg, #10b981 0%, #059669 100%);
+  box-shadow: 
+    0 4px 0 #047857,
+    0 8px 20px rgba(16, 185, 129, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.4);
+  transition: all 0.1s ease;
+}
+.btn-3d-emerald:hover {
+  background: linear-gradient(180deg, #34d399 0%, #059669 100%);
+  transform: translateY(-1px);
+  box-shadow: 
+    0 5px 0 #047857,
+    0 12px 25px rgba(16, 185, 129, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+.btn-3d-emerald:active {
+  transform: translateY(3px);
+  box-shadow: 
+    0 1px 0 #047857,
+    0 3px 10px rgba(16, 185, 129, 0.3),
+    inset 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.btn-3d-indigo {
+  background: linear-gradient(180deg, #6366f1 0%, #4f46e5 100%);
+  box-shadow: 
+    0 4px 0 #3730a3,
+    0 8px 20px rgba(99, 102, 241, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.4);
+  transition: all 0.1s ease;
+}
+.btn-3d-indigo:hover {
+  background: linear-gradient(180deg, #818cf8 0%, #4f46e5 100%);
+  transform: translateY(-1px);
+  box-shadow: 
+    0 5px 0 #3730a3,
+    0 12px 25px rgba(99, 102, 241, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+.btn-3d-indigo:active {
+  transform: translateY(3px);
+  box-shadow: 
+    0 1px 0 #3730a3,
+    0 3px 10px rgba(99, 102, 241, 0.3),
+    inset 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+/* Liquid Milk Wave Animation */
+@keyframes milkWave {
+  0% { transform: translateX(0) translateZ(0) scaleY(1); }
+  50% { transform: translateX(-25%) translateZ(0) scaleY(1.05); }
+  100% { transform: translateX(-50%) translateZ(0) scaleY(1); }
+}
+
+.animate-milk-wave {
+  animation: milkWave 8s linear infinite;
+}
+
+.animate-milk-wave-fast {
+  animation: milkWave 5s linear infinite;
+}
+
+/* 3D Chrome Shimmer */
+@keyframes chromeShimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.shimmer-chrome {
+  background: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.2) 50%, rgba(255,255,255,0) 100%);
+  background-size: 200% 100%;
+  animation: chromeShimmer 4s infinite;
 }
 
 /* Light Theme Overrides (Auto activated after 6:00 PM or manual light mode) */

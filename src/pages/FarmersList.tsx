@@ -4,7 +4,7 @@ import API from '../api';
 import { useAuth } from '../context/AuthContext';
 import { DateRangeFilter, type DateRange } from '../components/DateRangeFilter';
 import { 
-  Users, Search, PlusCircle, MapPin, Phone, ArrowLeftRight, Eye 
+  Users, Search, PlusCircle, MapPin, Phone, ArrowLeftRight, Eye, ShieldCheck 
 } from 'lucide-react';
 
 interface FarmerObj {
@@ -18,6 +18,8 @@ interface FarmerObj {
   openingBalance: number;
   openingAdvance: number;
   fatRate?: number;
+  dpdpConsentGiven?: boolean;
+  dpdpConsentDate?: string;
 }
 
 interface LedgerObj {
@@ -80,6 +82,7 @@ export const FarmersList: React.FC = () => {
   const [openingAdvance, setOpeningAdvance] = useState('');
   const [fatRate, setFatRate] = useState('');
   const [notes, setNotes] = useState('');
+  const [dpdpConsentGiven, setDpdpConsentGiven] = useState(true);
 
   const [formSubmitting, setFormSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -156,7 +159,8 @@ export const FarmersList: React.FC = () => {
         openingBalance: openingBalance ? parseFloat(openingBalance) : 0,
         openingAdvance: openingAdvance ? parseFloat(openingAdvance) : 0,
         fatRate: fatRate ? parseFloat(fatRate) : 0,
-        notes
+        notes,
+        dpdpConsentGiven
       };
 
       await API.post('/farmers', payload);
@@ -173,6 +177,7 @@ export const FarmersList: React.FC = () => {
       setOpeningAdvance('');
       setFatRate('');
       setNotes('');
+      setDpdpConsentGiven(true);
       setShowAddForm(false);
       
       setLoading(true);
@@ -360,6 +365,24 @@ export const FarmersList: React.FC = () => {
               </div>
             </div>
 
+            {/* DPDP Act 2023 Consent Checkbox */}
+            <div className="p-3.5 rounded-2xl bg-emerald-950/20 border border-emerald-900/40 flex items-start gap-3">
+              <input
+                type="checkbox"
+                id="dpdpConsent"
+                checked={dpdpConsentGiven}
+                onChange={(e) => setDpdpConsentGiven(e.target.checked)}
+                className="mt-0.5 w-4 h-4 rounded text-emerald-500 focus:ring-emerald-500 bg-dark-900 border-dark-700 cursor-pointer"
+              />
+              <label htmlFor="dpdpConsent" className="text-xs text-dark-300 leading-snug cursor-pointer select-none">
+                <span className="font-bold text-emerald-400 flex items-center gap-1.5 mb-0.5">
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                  DPDP Act 2023 किसान सहमति (Data Consent)
+                </span>
+                किसान ने अपने मोबाइल पर WhatsApp/SMS दूध पर्ची, 10-दिवसीय भुगतान बिल एवं लेन-देन खाता सुरक्षित रखने की पूर्ण सहमति दी है।
+              </label>
+            </div>
+
             <div className="flex justify-end gap-2.5 pt-2">
               <button
                 type="button"
@@ -515,6 +538,10 @@ export const FarmersList: React.FC = () => {
                     <span className="flex items-center gap-0.5">
                       <Phone className="w-3 h-3 text-dark-500" />
                       {f.mobile}
+                    </span>
+                    <span className="inline-flex items-center gap-1 bg-emerald-950/60 text-emerald-400 border border-emerald-800/40 px-1.5 py-0.5 rounded text-[9px] font-bold">
+                      <ShieldCheck className="w-2.5 h-2.5" />
+                      DPDP सुरक्षित
                     </span>
                   </div>
                 </div>
