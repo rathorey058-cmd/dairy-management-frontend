@@ -298,6 +298,39 @@ export const TimeIntervalGallaReportModal: React.FC<Props> = ({ isOpen, onClose 
             </div>
           ) : reportData ? (
             <>
+              {/* Zero Activity Notice Card (Laptop Off or Closed Counter) */}
+              {fin?.totalGrossSales === 0 && fin?.totalCashCollected === 0 && (sales?.milkSales?.entriesCount || 0) === 0 && (ai?.totalFootfall || 0) === 0 && (
+                <div className="p-4 rounded-2xl bg-indigo-950/40 border border-indigo-500/30 text-xs text-indigo-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg animate-fade-in">
+                  <div className="flex items-start gap-3">
+                    <div className="p-2 rounded-xl bg-indigo-500/20 text-indigo-300 shrink-0 mt-0.5">
+                      <Clock className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-white text-sm">इस समयावधि ({startTime} से {endTime}) में कोई गतिविधि दर्ज नहीं हुई</h4>
+                      <p className="text-dark-300 text-xs mt-0.5">
+                        इस समय के दौरान कोई दूध बिक्री, किराना बिल या AI कैमरा गतिविधि नहीं मिली। यदि इस दौरान लैपटॉप बंद था या दुकान में लेन-देन नहीं हुआ, तो डेटा शून्य (0) होना स्वाभाविक है।
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto">
+                    <button
+                      type="button"
+                      onClick={() => handleApplyPreset('2TO3')}
+                      className="flex-1 sm:flex-none px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md transition-all text-center"
+                    >
+                      दोपहर 2 से 3 बजे देखें
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleApplyPreset('FULL_DAY')}
+                      className="flex-1 sm:flex-none px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-md transition-all text-center"
+                    >
+                      पूरा दिन देखें
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* 1. Key Metrics Cards Row */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 
