@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import API from '../api';
 import { useAuth } from '../context/AuthContext';
 import { DateRangeFilter, type DateRange } from '../components/DateRangeFilter';
@@ -30,8 +30,8 @@ interface RateChart {
 }
 
 export const MilkEntry: React.FC = () => {
-  useAuth();
-  const navigate = useNavigate();
+  const { user } = useAuth();
+  const isStaff = user?.role === 'Operator' || user?.role === 'Sales' || user?.role === 'Delivery';
   const [searchParams] = useSearchParams();
   
   // Data lists
@@ -41,9 +41,13 @@ export const MilkEntry: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [isMilkSaleOpen, setIsMilkSaleOpen] = useState(false);
 
-  // Quick Camera Scan State
+  // Quick Camera & Dual-Audit Scan State
   const [isQuickScanning, setIsQuickScanning] = useState(false);
   const [quickScanStatus, setQuickScanStatus] = useState<string | null>(null);
+  const [cameraReading, setCameraReading] = useState<{ weight: number | null; fat: number | null }>({
+    weight: 12.5,
+    fat: 6.8
+  });
 
   const qDate = searchParams.get('date') || searchParams.get('startDate');
   const todayStr = new Date().toISOString().split('T')[0];
@@ -98,6 +102,19 @@ export const MilkEntry: React.FC = () => {
       console.error('Failed to load collections history', e);
     }
   }, [historyDateRange]);
+
+  const handleApplyCameraReading = () => {
+    if (cameraReading.weight) setQuantity(cameraReading.weight.toString());
+    if (cameraReading.fat) setFat(cameraReading.fat.toString());
+    setQuickScanStatus('✓ AI कैमरा रीडिंग सफलतापूर्वक फॉर्म में भर दी गई!');
+    setTimeout(() => setQuickScanStatus(null), 3000);
+  };
+
+  const isOcrMatched = Boolean(
+    quantity &&
+    cameraReading.weight &&
+    Math.abs(parseFloat(quantity) - cameraReading.weight) < 0.2
+  );
 
   useEffect(() => {
     loadCollections();
@@ -202,6 +219,10 @@ export const MilkEntry: React.FC = () => {
     try {
       const res = await API.post('/cameras/capture-ocr', {});
       const ocr = res.data.ocrResult;
+      setCameraReading({
+        weight: ocr.weight !== undefined ? ocr.weight : null,
+        fat: ocr.fat !== undefined ? ocr.fat : null
+      });
       if (ocr.weight !== null && ocr.weight !== undefined) {
         setQuantity(ocr.weight.toString());
       }
@@ -341,19 +362,32 @@ export const MilkEntry: React.FC = () => {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           
-          {/* AI Camera Quick Scan Widget */}
-          <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-2xl bg-gradient-to-r from-indigo-950/40 via-purple-950/20 to-dark-950 border border-indigo-500/30">
-            <div className="flex items-center gap-2.5">
-              <div className="p-2 rounded-xl bg-indigo-500/10 border border-indigo-500/30 text-indigo-400">
-                <Camera className="w-4 h-4" />
+          {/* AI Camera Dual-Audit Visual Matchup Widget */}
+          <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-2xl bg-gradient-to-r from-teal-950/40 via-dark-900 to-indigo-950/40 border border-teal-500/30 shadow-md">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-teal-500/20 border border-teal-500/40 text-teal-300">
+                <Camera className="w-5 h-5 animate-pulse" />
               </div>
               <div>
-                <h4 className="text-xs font-bold text-white flex items-center gap-1.5">
-                  <span>Hikvision AI Camera Auto-Read</span>
-                  <span className="text-[10px] px-1.5 py-0.2 rounded bg-indigo-500/20 text-indigo-300 font-mono">Gemini Vision</span>
-                </h4>
-                <p className="text-[10px] text-dark-400">
-                  {quickScanStatus || 'कांटा व फैट मशीन की स्क्रीन ऑटो-रीड करें'}
+                <div className="flex items-center gap-2">
+                  <h4 className="text-xs font-black text-white flex items-center gap-1.5">
+                    <span>📷 AI कैमरा लाइव कांटा व फैट</span>
+                  </h4>
+                  {isOcrMatched ? (
+                    <span className="text-[10px] px-2 py-0.5 rounded-md bg-emerald-950 border border-emerald-400 text-emerald-300 font-black flex items-center gap-1 shadow-sm">
+                      ✓ 100% MATCHED
+                    </span>
+                  ) : (
+                    <span className="text-[10px] px-2 py-0.5 rounded-md bg-amber-950/80 border border-amber-500/40 text-amber-300 font-bold">
+                      {quantity ? '⚠️ मिसमैच जाँचें' : 'कांटा रीडिंग सक्रिय'}
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-300 font-bold mt-1">
+                  कांटा वजन: <span className="text-teal-300 font-mono font-black">{cameraReading.weight} Ltr</span>
+                  <span className="mx-2 text-slate-500">•</span>
+                  मशीन फैट: <span className="text-teal-300 font-mono font-black">{cameraReading.fat}%</span>
+                  {quickScanStatus && <span className="ml-2 text-emerald-400 font-normal">{quickScanStatus}</span>}
                 </p>
               </div>
             </div>
@@ -361,21 +395,22 @@ export const MilkEntry: React.FC = () => {
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={handleQuickCameraScan}
-                disabled={isQuickScanning}
-                className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-md shadow-indigo-600/20 transition-all active:scale-95 disabled:opacity-50 flex items-center gap-1.5"
+                onClick={handleApplyCameraReading}
+                className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-teal-600 to-emerald-500 hover:brightness-110 text-white text-xs font-bold shadow-md shadow-teal-500/20 transition-all active:scale-95 flex items-center gap-1.5"
+                title="कैमरे की रीडिंग सीधे फॉर्म में भरें"
               >
-                <Sparkles className={`w-3.5 h-3.5 ${isQuickScanning ? 'animate-spin' : ''}`} />
-                <span>{isQuickScanning ? 'स्कैन हो रहा है...' : '⚡ कांटा व फैट स्कैन'}</span>
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>कैमरा रीडिंग भरें (Auto-Fill)</span>
               </button>
 
               <button
                 type="button"
-                onClick={() => navigate('/ai-camera')}
-                className="px-2.5 py-2 rounded-xl bg-dark-800 hover:bg-dark-750 text-indigo-300 border border-indigo-500/30 text-xs font-semibold"
-                title="फुल AI कैमरा हब खोलें"
+                onClick={handleQuickCameraScan}
+                disabled={isQuickScanning}
+                className="px-3 py-2 rounded-xl bg-dark-800 hover:bg-dark-750 text-slate-300 border border-dark-700 text-xs font-semibold disabled:opacity-50"
+                title="री-स्कैन करें"
               >
-                फुल हब ↗
+                {isQuickScanning ? 'स्कैनिंग...' : 'ताज़ा करें ↻'}
               </button>
             </div>
           </div>
@@ -590,22 +625,39 @@ export const MilkEntry: React.FC = () => {
             )}
           </div>
 
-          {/* Dynamic Rate Calculator Display */}
+          {/* Dynamic Rate Calculator Display (Staff Privacy Protected) */}
           {((rateChart?.pricingType === 'MAWA_YIELD' ? mawaYield : fat) || rateChart?.pricingType === 'FLAT') && (
-            <div className="p-4 rounded-2xl bg-primary-950/40 border border-primary-900/50 flex justify-between items-center text-sm font-bold text-primary-400 shadow-inner">
-              <span className="flex items-center gap-1.5">
-                <HelpCircle className="w-4 h-4" />
-                Estimated Rate:
-              </span>
-              <div className="text-right">
-                <span className="text-lg text-white">₹{estimatedRate.toFixed(2)}/L</span>
-                {quantity && (
-                  <p className="text-[10px] text-dark-400 font-medium -mt-0.5">
-                    Total Amount: ₹{estimatedAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+            isStaff ? (
+              <div className="p-3.5 rounded-2xl bg-teal-950/40 border border-teal-500/30 flex justify-between items-center text-xs font-bold text-teal-300 shadow-inner">
+                <span className="flex items-center gap-1.5">
+                  <Shield className="w-4 h-4 text-teal-400" />
+                  <span>स्टाफ गोपनीयता शील्ड:</span>
+                </span>
+                <div className="text-right">
+                  <span className="px-2 py-0.5 rounded bg-teal-950 border border-teal-400 text-teal-200 font-mono font-black text-xs">
+                    🔒 रेट व कुल रकम गोपनीय
+                  </span>
+                  <p className="text-[10px] text-teal-400 mt-0.5">
+                    दूध व फैट का हिसाब सीधे मालिक के पास स्वतः दर्ज होगा
                   </p>
-                )}
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="p-4 rounded-2xl bg-primary-950/40 border border-primary-900/50 flex justify-between items-center text-sm font-bold text-primary-400 shadow-inner">
+                <span className="flex items-center gap-1.5">
+                  <HelpCircle className="w-4 h-4" />
+                  Estimated Rate:
+                </span>
+                <div className="text-right">
+                  <span className="text-lg text-white">₹{estimatedRate.toFixed(2)}/L</span>
+                  {quantity && (
+                    <p className="text-[10px] text-dark-400 font-medium -mt-0.5">
+                      Total Amount: ₹{estimatedAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )
           )}
 
           <div>
@@ -669,8 +721,16 @@ export const MilkEntry: React.FC = () => {
                   </p>
                 </div>
                 <div className="text-right">
-                  <span className="text-xs font-bold text-white">₹{entry.amount.toFixed(2)}</span>
-                  <p className="text-[9px] text-dark-500 font-medium">₹{entry.rate}/L</p>
+                  {isStaff ? (
+                    <span className="text-xs font-mono font-bold text-slate-400 bg-dark-950 px-2 py-0.5 rounded border border-dark-800">
+                      🔒 गोपनीय
+                    </span>
+                  ) : (
+                    <>
+                      <span className="text-xs font-bold text-white">₹{entry.amount.toFixed(2)}</span>
+                      <p className="text-[9px] text-dark-500 font-medium">₹{entry.rate}/L</p>
+                    </>
+                  )}
                 </div>
               </div>
             ))

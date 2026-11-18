@@ -34,10 +34,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const storedUser = localStorage.getItem('user');
     const storedTenant = localStorage.getItem('tenant');
-    if (storedUser) setUser(JSON.parse(storedUser));
-    if (storedTenant) setTenant(JSON.parse(storedTenant));
+    if (storedUser) {
+      try {
+        setUser(JSON.parse(storedUser));
+        setLoading(false); // Instant screen launch without waiting for network!
+      } catch (e) {
+        // invalid JSON
+      }
+    }
+    if (storedTenant) {
+      try {
+        setTenant(JSON.parse(storedTenant));
+      } catch (e) {
+        // invalid JSON
+      }
+    }
 
-    // Verify session
+    // Verify session in background without blocking screen launch
     const initAuth = async () => {
       if (token) {
         try {
@@ -48,9 +61,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (res.data.tenant) {
             localStorage.setItem('tenant', JSON.stringify(res.data.tenant));
           }
-        } catch (error) {
+        } catch (error: any) {
           console.error('Session verification failed', error);
-          logout();
+          // Only logout on definite 401/403 unauthorized, never on slow network or Render wake-up
+          if (error.response?.status === 401 || error.response?.status === 403) {
+            logout();
+          }
         }
       }
       setLoading(false);

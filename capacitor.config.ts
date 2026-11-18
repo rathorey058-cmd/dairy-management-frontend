@@ -1,9 +1,12 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.dairysmart.ai',
+  appId: 'com.dairysmartai.app',
   appName: 'Dairy Smart AI',
-  webDir: 'dist'
+  webDir: 'dist',
+  server: {
+    cleartext: true
+  }
 };
 
 export default config;

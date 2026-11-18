@@ -1,10 +1,13 @@
 import axios from 'axios';
 
-const isLocal =
+const isCapacitorNative = typeof window !== 'undefined' && !!(window as any).Capacitor?.isNativePlatform?.();
+
+const isDevBrowser =
   typeof window !== 'undefined' &&
+  !isCapacitorNative &&
   (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 
-const baseUrl = isLocal 
+const baseUrl = isDevBrowser 
   ? 'http://localhost:5000/api' 
   : (import.meta.env.VITE_API_URL || 'https://dairy-management-backendd.onrender.com/api');
 

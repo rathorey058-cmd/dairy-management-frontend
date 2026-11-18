@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import API from '../api';
 import { useAuth } from '../context/AuthContext';
+import { deliveryTracker } from '../services/deliveryTracker';
 import { 
   Truck, Users, Calendar, CheckCircle2, XCircle, Plus, 
   RotateCcw, Save, Search, Phone, MapPin, 
@@ -48,12 +49,34 @@ interface BandhiMaster {
 }
 
 export const MilkBandhiPage: React.FC = () => {
-  useAuth();
+  const { user, tenant } = useAuth();
   const todayStr = new Date().toISOString().split('T')[0];
+  const isStaff = user?.role === 'staff' || (user as any)?.role === 'operator';
 
   const [activeTab, setActiveTab] = useState<'delivery' | 'master'>('delivery');
   const [selectedDate, setSelectedDate] = useState<string>(todayStr);
   const [selectedShift, setSelectedShift] = useState<'Morning' | 'Evening'>('Morning');
+
+  // Delivery Live Background GPS Tracking State
+  const [isDutyActive, setIsDutyActive] = useState<boolean>(deliveryTracker.isDutyOn());
+  const [lastCoord, setLastCoord] = useState<{ lat: number; lng: number } | null>(null);
+
+  const handleToggleDuty = () => {
+    if (isDutyActive) {
+      deliveryTracker.stopDuty();
+      setIsDutyActive(false);
+    } else {
+      const staffInfo = {
+        tenantId: tenant?._id || (user as any)?.tenantId || 'default-tenant',
+        staffId: user?._id || 'staff-1',
+        staffName: user?.name || 'डिलीवरी स्टाफ'
+      };
+      deliveryTracker.startDuty(staffInfo, (pos) => {
+        setLastCoord(pos);
+      });
+      setIsDutyActive(true);
+    }
+  };
 
   // Delivery Sheet State
   const [sheet, setSheet] = useState<DeliverySheet | null>(null);
@@ -305,6 +328,47 @@ export const MilkBandhiPage: React.FC = () => {
       {/* TAB 1: DAILY DELIVERY SHEET */}
       {activeTab === 'delivery' && (
         <div className="space-y-5">
+          {/* Live GPS Duty Tracker Banner */}
+          <div className={`p-4 rounded-3xl border transition-all flex flex-col sm:flex-row items-center justify-between gap-4 ${
+            isDutyActive 
+              ? 'bg-emerald-950/40 border-emerald-500/50 text-emerald-200 shadow-lg shadow-emerald-950/30' 
+              : 'bg-dark-900 border-dark-800 text-dark-300'
+          }`}>
+            <div className="flex items-center gap-3">
+              <div className={`w-10 h-10 rounded-2xl flex items-center justify-center font-bold text-lg ${
+                isDutyActive ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 animate-pulse' : 'bg-dark-800 text-dark-400'
+              }`}>
+                <MapPin className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-black text-white">
+                    {isDutyActive ? '🟢 डिलीवरी ड्यूटी चालू (Live GPS Active)' : '⚪ डिलीवरी ड्यूटी बंद'}
+                  </span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-dark-800 border border-dark-700 text-dark-400">
+                    Screen-Off Protected (20s Ping)
+                  </span>
+                </div>
+                <p className="text-xs text-dark-400 mt-0.5">
+                  {isDutyActive 
+                    ? (lastCoord ? `अंतिम लोकेशन: Lat ${lastCoord.lat.toFixed(4)}, Lng ${lastCoord.lng.toFixed(4)} • ओनर लाइव देख रहे हैं` : 'GPS सिग्नल खोज रहा है... बैकग्राउंड ट्रैकिंग सक्रिय') 
+                    : 'डिलीवरी शुरू करते समय इसे ऑन करें, मोबाइल स्क्रीन लॉक होने पर भी ओनर को लाइव दिखता रहेगा।'}
+                </p>
+              </div>
+            </div>
+
+            <button
+              onClick={handleToggleDuty}
+              className={`px-5 py-2.5 rounded-2xl font-black text-xs transition-all shadow-md flex items-center gap-2 ${
+                isDutyActive 
+                  ? 'bg-rose-600 hover:bg-rose-500 text-white' 
+                  : 'bg-emerald-600 hover:bg-emerald-500 text-white'
+              }`}
+            >
+              {isDutyActive ? '🛑 ड्यूटी समाप्त करें' : '🚀 ड्यूटी चालू करें (Start Delivery)'}
+            </button>
+          </div>
+
           {/* Controls Bar */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-dark-900 border border-dark-800 p-4 rounded-3xl">
             {/* Date Picker */}
@@ -366,10 +430,12 @@ export const MilkBandhiPage: React.FC = () => {
                 <span className="text-[11px] font-bold text-rose-400 uppercase tracking-wider">नागा / छुट्टी</span>
                 <span className="text-2xl font-black text-rose-400 mt-2">{sheet.skippedCount} बांधी</span>
               </div>
-              <div className="bg-dark-900 border border-dark-800 rounded-3xl p-4 flex flex-col justify-between">
-                <span className="text-[11px] font-bold text-primary-400 uppercase tracking-wider">कुल राशि (बिल)</span>
-                <span className="text-2xl font-black text-primary-400 mt-2">₹{sheet.totalAmount.toLocaleString('en-IN')}</span>
-              </div>
+              {!isStaff && (
+                <div className="bg-dark-900 border border-dark-800 rounded-3xl p-4 flex flex-col justify-between">
+                  <span className="text-[11px] font-bold text-primary-400 uppercase tracking-wider">कुल राशि (बिल)</span>
+                  <span className="text-2xl font-black text-primary-400 mt-2">₹{sheet.totalAmount.toLocaleString('en-IN')}</span>
+                </div>
+              )}
             </div>
           )}
 
@@ -436,8 +502,12 @@ export const MilkBandhiPage: React.FC = () => {
                             <h4 className="text-sm font-black text-white">{d.customerName}</h4>
                             <div className="flex items-center gap-2 mt-0.5 text-[11px] text-dark-400">
                               <span>{d.milkType === 'Cow' ? '🐄 गाय' : '🐃 भैंस'}</span>
-                              <span>•</span>
-                              <span>दर: ₹{d.rate}/L</span>
+                              {!isStaff && (
+                                <>
+                                  <span>•</span>
+                                  <span>दर: ₹{d.rate}/L</span>
+                                </>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -493,10 +563,17 @@ export const MilkBandhiPage: React.FC = () => {
                           </div>
                         </div>
 
-                        <div className="text-right">
-                          <span className="text-[10px] text-dark-400 block font-bold">बिल राशि</span>
-                          <span className="text-xs font-black text-white">₹{d.amount}</span>
-                        </div>
+                        {!isStaff ? (
+                          <div className="text-right">
+                            <span className="text-[10px] text-dark-400 block font-bold">बिल राशि</span>
+                            <span className="text-xs font-black text-white">₹{d.amount}</span>
+                          </div>
+                        ) : (
+                          <div className="text-right">
+                            <span className="text-[10px] text-dark-500 block font-bold">हिसाब</span>
+                            <span className="text-[11px] font-bold text-dark-400 italic">🔒 सुरक्षित</span>
+                          </div>
+                        )}
                       </div>
                     </div>
                   );
@@ -585,7 +662,7 @@ export const MilkBandhiPage: React.FC = () => {
                     </div>
                     <div>
                       <span className="text-[10px] text-dark-400 block font-bold">भाव</span>
-                      <span className="text-xs font-black text-white">₹{b.rate}/L</span>
+                      <span className="text-xs font-black text-white">{!isStaff ? `₹${b.rate}/L` : '🔒'}</span>
                     </div>
                     <div>
                       <span className="text-[10px] text-dark-400 block font-bold">शिफ्ट</span>

@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import API from '../../api';
 import { useAuth } from '../../context/AuthContext';
-import { 
-  Sparkles, AlertTriangle, 
+import {
+  Sparkles, AlertTriangle,
   CheckCircle2, RefreshCw, Camera,
   LayoutGrid, Maximize2, Video, ShieldAlert,
   Play, X, Calendar
@@ -33,8 +33,8 @@ interface Props {
   onOpenStaffTerminal?: () => void;
 }
 
-export const ShopAiLiveMonitor: React.FC<Props> = ({ 
-  cameras, 
+export const ShopAiLiveMonitor: React.FC<Props> = ({
+  cameras,
   onReportCreated
 }) => {
   const { t, language } = useAuth();
@@ -210,10 +210,10 @@ export const ShopAiLiveMonitor: React.FC<Props> = ({
               }
               return { ...prev, [cam._id]: objectUrl };
             });
-          } catch (e) {}
+          } catch (e) { }
         })
       );
-    } catch (e) {}
+    } catch (e) { }
   }, [cameras, cameraSource]);
 
   // Loop for Multi-Camera Grid
@@ -310,8 +310,8 @@ export const ShopAiLiveMonitor: React.FC<Props> = ({
         cameraId: cameraSource === 'HIKVISION' ? targetCamId : undefined,
         snapshotBase64: snapshotBase64 || undefined,
         userContextPrompt: liveContextPrompt,
-        cameraName: targetCam 
-          ? `${targetCam.name} (Ch #${targetCam.channel || 1})` 
+        cameraName: targetCam
+          ? `${targetCam.name} (Ch #${targetCam.channel || 1})`
           : (cameraSource === 'HIKVISION' ? 'Hikvision IP Camera' : 'Counter Webcam'),
       };
 
@@ -337,7 +337,7 @@ export const ShopAiLiveMonitor: React.FC<Props> = ({
 
   return (
     <div className="space-y-6 animate-fade-in">
-      
+
       {/* Sleek Minimalist Live Controls Bar */}
       <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 px-5 rounded-2xl bg-dark-900 border border-dark-800 shadow-md">
         <div className="flex items-center gap-3">
@@ -360,9 +360,8 @@ export const ShopAiLiveMonitor: React.FC<Props> = ({
               <button
                 type="button"
                 onClick={() => setViewMode('GRID')}
-                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
-                  viewMode === 'GRID' ? 'bg-indigo-600 text-white shadow-sm' : 'text-dark-400 hover:text-white'
-                }`}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${viewMode === 'GRID' ? 'bg-indigo-600 text-white shadow-sm' : 'text-dark-400 hover:text-white'
+                  }`}
               >
                 <LayoutGrid className="w-3.5 h-3.5" />
                 <span>{language === 'hi' ? 'ग्रिड' : 'Grid'}</span>
@@ -370,9 +369,8 @@ export const ShopAiLiveMonitor: React.FC<Props> = ({
               <button
                 type="button"
                 onClick={() => setViewMode('SINGLE')}
-                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
-                  viewMode === 'SINGLE' ? 'bg-indigo-600 text-white shadow-sm' : 'text-dark-400 hover:text-white'
-                }`}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${viewMode === 'SINGLE' ? 'bg-indigo-600 text-white shadow-sm' : 'text-dark-400 hover:text-white'
+                  }`}
               >
                 <Maximize2 className="w-3.5 h-3.5" />
                 <span>{language === 'hi' ? 'सिंगल' : 'Single'}</span>
@@ -384,18 +382,16 @@ export const ShopAiLiveMonitor: React.FC<Props> = ({
             <button
               type="button"
               onClick={() => handleToggleCameraSource('HIKVISION')}
-              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
-                cameraSource === 'HIKVISION' ? 'bg-indigo-600 text-white shadow-sm' : 'text-dark-400 hover:text-white'
-              }`}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${cameraSource === 'HIKVISION' ? 'bg-indigo-600 text-white shadow-sm' : 'text-dark-400 hover:text-white'
+                }`}
             >
               📹 DVR
             </button>
             <button
               type="button"
               onClick={() => handleToggleCameraSource('WEBCAM')}
-              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
-                cameraSource === 'WEBCAM' ? 'bg-indigo-600 text-white shadow-sm' : 'text-dark-400 hover:text-white'
-              }`}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${cameraSource === 'WEBCAM' ? 'bg-indigo-600 text-white shadow-sm' : 'text-dark-400 hover:text-white'
+                }`}
             >
               📱 वेबकैम
             </button>
@@ -405,19 +401,19 @@ export const ShopAiLiveMonitor: React.FC<Props> = ({
 
       {/* Main Viewport + Ultra-Crisp Incidents Feed */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        
+
         {/* Left Column: Live Video/Snapshot Feed (7 Cols) */}
         <div className="lg:col-span-7 space-y-4">
           <div className="p-5 rounded-3xl bg-dark-900 border border-dark-800 shadow-xl space-y-4">
-            
+
             {/* Header / Select Cam */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="flex items-center gap-2">
                 <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
                 <div>
                   <h3 className="text-sm font-black text-white">
-                    {cameraSource === 'HIKVISION' 
-                      ? (selectedCamObj ? `${selectedCamObj.name} [Ch #${selectedCamObj.channel || 1}]` : 'DVR लाइव स्ट्रीम') 
+                    {cameraSource === 'HIKVISION'
+                      ? (selectedCamObj ? `${selectedCamObj.name} [Ch #${selectedCamObj.channel || 1}]` : 'DVR लाइव स्ट्रीम')
                       : 'वेबकैम स्ट्रीम'}
                   </h3>
                   <p className="text-[10px] text-dark-400">
@@ -585,7 +581,7 @@ export const ShopAiLiveMonitor: React.FC<Props> = ({
         {/* Right Column: Ultra-Crisp 2-Line Actionable Incidents Stream (5 Cols) */}
         <div className="lg:col-span-5 space-y-4">
           <div className="p-5 rounded-3xl bg-dark-900 border border-dark-800 shadow-xl space-y-4 flex flex-col h-full">
-            
+
             {/* Header & Filter */}
             <div className="flex items-center justify-between">
               <div>
@@ -616,11 +612,10 @@ export const ShopAiLiveMonitor: React.FC<Props> = ({
                     setDatePreset('TODAY');
                     setSelectedDate(getTodayStr());
                   }}
-                  className={`px-2.5 py-1 rounded-xl text-[11px] font-black transition-all ${
-                    datePreset === 'TODAY'
+                  className={`px-2.5 py-1 rounded-xl text-[11px] font-black transition-all ${datePreset === 'TODAY'
                       ? 'bg-emerald-600 text-white shadow-md'
                       : 'text-dark-400 hover:text-white'
-                  }`}
+                    }`}
                 >
                   {t('today')}
                 </button>
@@ -630,22 +625,20 @@ export const ShopAiLiveMonitor: React.FC<Props> = ({
                     setDatePreset('YESTERDAY');
                     setSelectedDate(getYesterdayStr());
                   }}
-                  className={`px-2.5 py-1 rounded-xl text-[11px] font-black transition-all ${
-                    datePreset === 'YESTERDAY'
+                  className={`px-2.5 py-1 rounded-xl text-[11px] font-black transition-all ${datePreset === 'YESTERDAY'
                       ? 'bg-indigo-600 text-white shadow-md'
                       : 'text-dark-400 hover:text-white'
-                  }`}
+                    }`}
                 >
                   {t('yesterday')}
                 </button>
                 <button
                   type="button"
                   onClick={() => setDatePreset('ALL')}
-                  className={`px-2.5 py-1 rounded-xl text-[11px] font-black transition-all ${
-                    datePreset === 'ALL'
+                  className={`px-2.5 py-1 rounded-xl text-[11px] font-black transition-all ${datePreset === 'ALL'
                       ? 'bg-slate-700 text-white shadow-md'
                       : 'text-dark-400 hover:text-white'
-                  }`}
+                    }`}
                 >
                   {t('allDays')}
                 </button>
