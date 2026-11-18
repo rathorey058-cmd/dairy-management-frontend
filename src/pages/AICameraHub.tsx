@@ -5,7 +5,7 @@ import {
   Camera, Eye, ShieldCheck, AlertTriangle, CheckCircle2, RefreshCw, 
   Cpu, Scan, UserCheck, Plus, Trash2, Video, 
   Wifi, WifiOff, Store, QrCode, Sparkles, X, Upload,
-  FileVideo, Radio, FileText, Users, HardDrive, Banknote, Smartphone
+  FileVideo, Radio, FileText, Users, HardDrive, Banknote, Smartphone, Tag
 } from 'lucide-react';
 import { ShopAiVideoUpload } from '../components/camera/ShopAiVideoUpload';
 import { ShopAiLiveMonitor } from '../components/camera/ShopAiLiveMonitor';
@@ -15,6 +15,7 @@ import { TimeIntervalGallaReportModal } from '../components/camera/TimeIntervalG
 import { DvrPlaybackModal } from '../components/camera/DvrPlaybackModal';
 import { FridgeSurveillanceModal } from '../components/camera/FridgeSurveillanceModal';
 import { StaffTerminal } from '../components/camera/StaffTerminal';
+import { VisualPairingModal } from '../components/camera/VisualPairingModal';
 
 interface CameraItem {
   _id: string;
@@ -76,6 +77,7 @@ export const AICameraHub: React.FC = () => {
   const [isDvrPlaybackModalOpen, setIsDvrPlaybackModalOpen] = useState(false);
   const [isFridgeModalOpen, setIsFridgeModalOpen] = useState(false);
   const [isStaffTerminalActive, setIsStaffTerminalActive] = useState(false);
+  const [isVisualPairingModalOpen, setIsVisualPairingModalOpen] = useState(false);
 
   // Dual-Audit & Smart Milk Desk State
   const [tokenInput, setTokenInput] = useState('');
@@ -683,6 +685,7 @@ export const AICameraHub: React.FC = () => {
           onOpenDvrPlayback={() => setIsDvrPlaybackModalOpen(true)}
           onOpenFridge={() => setIsFridgeModalOpen(true)}
           onOpenStaffTerminal={() => setIsStaffTerminalActive(true)}
+          onOpenVisualPairing={() => setIsVisualPairingModalOpen(true)}
         />
       )}
 
@@ -703,7 +706,7 @@ export const AICameraHub: React.FC = () => {
             <span className="text-[11px] font-bold text-dark-400 uppercase tracking-wider block">
               ⚡ {language === 'hi' ? 'स्मार्ट टूल्स व इन-ऐप फीचर्स:' : 'Smart Dairy Tools & Features:'}
             </span>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
               <button
                 type="button"
                 onClick={() => setIsProfilesModalOpen(true)}
@@ -743,6 +746,14 @@ export const AICameraHub: React.FC = () => {
               >
                 <Smartphone className="w-5 h-5 text-amber-400" />
                 <span>स्टाफ टर्मिनल मोड</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsVisualPairingModalOpen(true)}
+                className="p-3 rounded-2xl bg-dark-950 hover:bg-dark-800 text-indigo-300 border border-indigo-500/30 text-xs font-bold flex flex-col items-center gap-1.5 transition-all text-center shadow-sm"
+              >
+                <Tag className="w-5 h-5 text-indigo-400" />
+                <span>विज़ुअल पेयरिंग (ब्लॉक्स)</span>
               </button>
             </div>
           </div>
@@ -2356,6 +2367,12 @@ export const AICameraHub: React.FC = () => {
       <FridgeSurveillanceModal
         isOpen={isFridgeModalOpen}
         onClose={() => setIsFridgeModalOpen(false)}
+      />
+
+      <VisualPairingModal
+        isOpen={isVisualPairingModalOpen}
+        onClose={() => setIsVisualPairingModalOpen(false)}
+        cameras={cameras}
       />
 
     </div>

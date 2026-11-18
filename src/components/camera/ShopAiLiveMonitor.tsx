@@ -31,11 +31,13 @@ interface Props {
   onOpenDvrPlayback?: () => void;
   onOpenFridge?: () => void;
   onOpenStaffTerminal?: () => void;
+  onOpenVisualPairing?: () => void;
 }
 
 export const ShopAiLiveMonitor: React.FC<Props> = ({
   cameras,
-  onReportCreated
+  onReportCreated,
+  onOpenVisualPairing
 }) => {
   const { t, language } = useAuth();
   const [viewMode, setViewMode] = useState<'GRID' | 'SINGLE'>('GRID');
@@ -76,6 +78,24 @@ export const ShopAiLiveMonitor: React.FC<Props> = ({
   const [liveContextPrompt] = useState(
     'दुकान: श्री कृष्णा डेयरी। काउंटर पर नौकर आकाश है। गल्ला, ग्राहक बिक्री व हाथ की हरकतों पर 2-लाइन क्रिस्प अलर्ट दें।'
   );
+
+  // Active Visual Pairing Blocks (Color Coded)
+  const [pairingBlocks, setPairingBlocks] = useState<any[]>([]);
+
+  const fetchPairingBlocks = useCallback(async () => {
+    try {
+      const res = await API.get('/cameras/pairing-blocks');
+      if (res.data?.blocks) {
+        setPairingBlocks(res.data.blocks);
+      }
+    } catch (e) {}
+  }, []);
+
+  useEffect(() => {
+    fetchPairingBlocks();
+    const iv = setInterval(fetchPairingBlocks, 20000);
+    return () => clearInterval(iv);
+  }, [fetchPairingBlocks]);
 
   const webcamVideoRef = useRef<HTMLVideoElement>(null);
   const snapshotIntervalRef = useRef<any>(null);
@@ -396,6 +416,17 @@ export const ShopAiLiveMonitor: React.FC<Props> = ({
               📱 वेबकैम
             </button>
           </div>
+
+          {onOpenVisualPairing && (
+            <button
+              type="button"
+              onClick={onOpenVisualPairing}
+              className="px-3 py-1.5 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/40 text-indigo-300 text-xs font-bold transition flex items-center gap-1.5 shadow-sm"
+            >
+              <span>🏷️</span>
+              <span>विज़ुअल ब्लॉक्स ({pairingBlocks.length})</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -509,7 +540,7 @@ export const ShopAiLiveMonitor: React.FC<Props> = ({
               )}
 
               {/* Status Badges Overlay */}
-              <div className="absolute top-3 left-3 flex items-center gap-2">
+              <div className="absolute top-3 left-3 flex items-center gap-2 z-20">
                 <span className="px-2.5 py-1 rounded-full bg-black/60 backdrop-blur-md text-[10px] font-bold text-white border border-white/10 flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
                   <span>LIVE ACTIVE</span>
@@ -519,6 +550,61 @@ export const ShopAiLiveMonitor: React.FC<Props> = ({
                   <span>2-LINE CRISP THEFT AUDIT</span>
                 </span>
               </div>
+
+              {/* Camera 4 Gate Entry/Exit Tripwire Overlay */}
+              {selectedCamObj?.channel === 4 && (
+                <>
+                  <div className="absolute top-[35%] left-0 right-0 border-t-2 border-emerald-400 border-dashed pointer-events-none z-10 flex justify-between px-3 text-[9px] font-bold text-emerald-300 bg-emerald-950/40 py-0.5">
+                    <span>▼ GREEN LINE (दुकान में प्रवेश / कैन IN)</span>
+                    <span>TRIPWIRE CH#4</span>
+                  </div>
+                  <div className="absolute top-[68%] left-0 right-0 border-t-2 border-rose-500 border-dashed pointer-events-none z-10 flex justify-between px-3 text-[9px] font-bold text-rose-300 bg-rose-950/40 py-0.5">
+                    <span>▲ RED LINE (दुकान से निकासी / कैन OUT)</span>
+                    <span>अलर्ट ज़ोन</span>
+                  </div>
+                </>
+              )}
+
+              {/* Active Visual Pairing Blocks Color-Coded Overlay */}
+              {pairingBlocks
+                .filter((b) => b.cameraChannel === (selectedCamObj?.channel || 1))
+                .map((b) => (
+                  <div
+                    key={b._id}
+                    style={{
+                      left: `${b.coordinates?.x || 10}%`,
+                      top: `${b.coordinates?.y || 10}%`,
+                      width: `${b.coordinates?.width || 25}%`,
+                      height: `${b.coordinates?.height || 25}%`,
+                      borderColor: b.color || '#3B82F6',
+                      backgroundColor: `${b.color || '#3B82F6'}15`,
+                    }}
+                    className="absolute border-2 rounded-lg pointer-events-none flex flex-col justify-between p-1 z-10 transition-all duration-300"
+                  >
+                    <div className="flex items-center gap-1">
+                      <span
+                        className="text-[9px] font-bold px-1.5 py-0.5 rounded text-white shadow-md truncate max-w-[120px]"
+                        style={{ backgroundColor: b.color || '#3B82F6' }}
+                      >
+                        {b.name}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between text-[8px] font-mono bg-black/80 text-white px-1 py-0.5 rounded border border-white/10 mt-auto">
+                      <span>{b.blockCode}</span>
+                      {b.category === 'SHELF' && (
+                        <span className="text-sky-300 font-bold ml-1">
+                          Picks: {b.shelfConfig?.pickCount || b.totalPicks || 0}
+                        </span>
+                      )}
+                      {b.category === 'REUSABLE_CAN' && (
+                        <span className={`font-bold ml-1 ${b.gateStatus?.status === 'OUTSIDE_SHOP' ? 'text-amber-400' : 'text-emerald-400'}`}>
+                          {b.gateStatus?.status === 'OUTSIDE_SHOP' ? 'OUT' : 'IN'}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
 
               {/* Timecode */}
               <div className="absolute bottom-3 right-3 px-2.5 py-1 rounded-lg bg-black/70 backdrop-blur-md text-[10px] font-mono text-dark-300 border border-white/10">
