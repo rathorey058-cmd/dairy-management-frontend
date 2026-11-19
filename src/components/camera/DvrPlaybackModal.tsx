@@ -40,7 +40,9 @@ export const DvrPlaybackModal: React.FC<Props> = ({ isOpen, onClose, cameras }) 
 
   const [timeline, setTimeline] = useState<any | null>(null);
   const [eventIdx, setEventIdx] = useState(0);
-  const imgEvents: any[] = (timeline?.events || []).filter((e: any) => e.image);
+  const [isScanningHdd, setIsScanningHdd] = useState(false);
+  const scanPollRef = useRef<any>(null);
+  const imgEvents: any[] = (timeline?.events || []).filter((e: any) => e.image && !String(e.image).startsWith('SCAN_REQ:'));
 
   // Slideshow over REAL recorded AI event frames of the chosen time window (not live feed)
   useEffect(() => {
@@ -113,6 +115,39 @@ export const DvrPlaybackModal: React.FC<Props> = ({ isOpen, onClose, cameras }) 
       });
       setTimeline(tl.data);
       handleFastAiAudit();
+
+      const validImgs = (tl.data?.events || []).filter((ev: any) => ev.image && !String(ev.image).startsWith('SCAN_REQ:'));
+      if (validImgs.length < 2) {
+        const ch = res.data?.channel || cameras.find((c) => c._id === selectedCamId)?.channel || 1;
+        setIsScanningHdd(true);
+        API.post('/cameras/evaluate-edge-rules', {
+          footfallArrivals: 1,
+          footfallSnapshot: `SCAN_REQ:${ch}|${playbackDate}|${playbackStartTime}|${playbackEndTime}`,
+        }).catch(() => {});
+
+        if (scanPollRef.current) clearInterval(scanPollRef.current);
+        let tries = 0;
+        scanPollRef.current = setInterval(async () => {
+          tries += 1;
+          try {
+            const tl2 = await API.get('/cameras/playback/timeline', {
+              params: { date: playbackDate, startTime: playbackStartTime, endTime: playbackEndTime },
+            });
+            setTimeline(tl2.data);
+            const imgs2 = (tl2.data?.events || []).filter((ev: any) => ev.image && !String(ev.image).startsWith('SCAN_REQ:'));
+            if (imgs2.length >= 4 || tries >= 6) {
+              clearInterval(scanPollRef.current);
+              setIsScanningHdd(false);
+              handleFastAiAudit();
+            }
+          } catch {
+            if (tries >= 6) {
+              clearInterval(scanPollRef.current);
+              setIsScanningHdd(false);
+            }
+          }
+        }, 3000);
+      }
     } catch (err: any) {
       setErrorMessage(err.response?.data?.message || 'DVR हार्ड डिस्क से रिकॉर्डिंग ट्रैक नहीं मिल सका।');
     } finally {
@@ -247,10 +282,26 @@ export const DvrPlaybackModal: React.FC<Props> = ({ isOpen, onClose, cameras }) 
                     alt="AI Recorded Frame"
                     className="w-full h-full object-contain"
                   />
-                  <div className="absolute bottom-3 left-3 px-3 py-1 rounded-xl bg-black/70 text-xs font-mono text-white border border-white/10">
-                    {new Date(imgEvents[eventIdx % imgEvents.length].time).toLocaleTimeString('hi-IN')} • +{imgEvents[eventIdx % imgEvents.length].count || 1} ग्राहक
+                  <div className="absolute bottom-3 left-3 px-3 py-1 rounded-xl bg-black/75 text-xs font-mono text-white border border-white/10 flex items-center gap-2">
+                    <span>फ्रेम {(eventIdx % imgEvents.length) + 1}/{imgEvents.length}</span>
+                    <span>•</span>
+                    <span>{new Date(imgEvents[eventIdx % imgEvents.length].time).toLocaleTimeString('hi-IN')}</span>
+                    <span>•</span>
+                    <span className="text-emerald-400 font-bold">
+                      {imgEvents[eventIdx % imgEvents.length].count > 0
+                        ? `+${imgEvents[eventIdx % imgEvents.length].count} ग्राहक`
+                        : '0 ग्राहक'}
+                    </span>
                   </div>
                 </>
+              ) : isScanningHdd ? (
+                <div className="text-center p-8 space-y-3 max-w-md">
+                  <RefreshCw className="w-8 h-8 text-emerald-400 animate-spin mx-auto" />
+                  <p className="text-sm text-white font-bold">DVR हार्ड डिस्क से {playbackDate} ({playbackStartTime} - {playbackEndTime}) की रिकॉर्डिंग निकाली जा रही है...</p>
+                  <p className="text-xs text-dark-400">
+                    YOLO AI हर फ्रेम में ग्राहक गिन रहा है। 5–10 सेकंड में असली DVR फ्रेम और रिपोर्ट स्क्रीन पर आ जाएगी।
+                  </p>
+                </div>
               ) : (
                 <div className="text-center p-8 space-y-2 max-w-md">
                   <AlertTriangle className="w-8 h-8 text-amber-400 mx-auto" />
@@ -307,7 +358,7 @@ export const DvrPlaybackModal: React.FC<Props> = ({ isOpen, onClose, cameras }) 
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-dark-300">
                 <div className="bg-dark-900/60 p-2 rounded-xl border border-dark-800">
                   <span className="text-[10px] text-dark-500 block">ग्राहक फुटफॉल</span>
-                  <span className="font-bold text-white text-sm">{auditSummary.aiInsights?.totalFootfall || 0} ग्राहक</span>
+                  <span className="font-bold text-white text-sm">{timeline?.customers ?? auditSummary.aiSurveillance?.totalFootfall ?? 0} ग्राहक</span>
                 </div>
                 <div className="bg-dark-900/60 p-2 rounded-xl border border-dark-800">
                   <span className="text-[10px] text-dark-500 block">दूध बिक्री</span>
@@ -319,7 +370,7 @@ export const DvrPlaybackModal: React.FC<Props> = ({ isOpen, onClose, cameras }) 
                 </div>
                 <div className="bg-dark-900/60 p-2 rounded-xl border border-dark-800">
                   <span className="text-[10px] text-dark-500 block">गल्ला स्थिति</span>
-                  <span className="font-bold text-amber-400 text-sm">{auditSummary.gallaCamera?.drawerOpenings || 0} बार खुला</span>
+                  <span className="font-bold text-amber-400 text-sm">{auditSummary.aiSurveillance?.drawerOpeningsCount || 0} बार खुला</span>
                 </div>
               </div>
             </div>
