@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import API from '../../api';
+import { TriMatchReportModal } from './TriMatchReportModal';
 import { X, Users, Receipt, IndianRupee, Wallet, DoorOpen, AlertTriangle, RefreshCw, Mic } from 'lucide-react';
 
 interface Props {
@@ -17,6 +18,7 @@ export const QuickReportModal: React.FC<Props> = ({ isOpen, onClose }) => {
   const [data, setData] = useState<any | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [showTri, setShowTri] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -57,6 +59,10 @@ export const QuickReportModal: React.FC<Props> = ({ isOpen, onClose }) => {
       <div className="bg-dark-950 border border-dark-700 w-full max-w-xl rounded-3xl shadow-2xl my-auto">
         <div className="p-4 flex items-center justify-between border-b border-dark-800">
           <h2 className="text-base font-black text-white">📊 रिपोर्ट</h2>
+          <button onClick={() => setShowTri(true)}
+            className="ml-auto mr-2 px-3 py-1.5 rounded-xl bg-emerald-600/20 border border-emerald-500/40 text-emerald-300 text-xs font-bold">
+            🔍 हर ग्राहक का वीडियो+ऑडियो+POS मिलान
+          </button>
           <button onClick={onClose} className="p-2 rounded-xl bg-dark-800 text-dark-300 hover:text-white">
             <X className="w-4 h-4" />
           </button>
@@ -123,6 +129,7 @@ export const QuickReportModal: React.FC<Props> = ({ isOpen, onClose }) => {
           )}
         </div>
       </div>
+      <TriMatchReportModal isOpen={showTri} onClose={() => setShowTri(false)} />
     </div>
   );
 };
