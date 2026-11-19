@@ -331,6 +331,14 @@ export const TimeIntervalGallaReportModal: React.FC<Props> = ({ isOpen, onClose 
                 </div>
               )}
 
+              {/* Unbilled Cash Mismatch Alert */}
+              {fin?.unbilledCashAlert && (
+                <div className="p-3.5 rounded-2xl bg-amber-950/60 border border-amber-500/50 text-amber-200 text-xs flex items-center gap-2.5 shadow-lg">
+                  <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 animate-pulse" />
+                  <span className="font-bold">{fin.unbilledCashAlert}</span>
+                </div>
+              )}
+
               {/* 1. Key Metrics Cards Row */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 
@@ -342,9 +350,20 @@ export const TimeIntervalGallaReportModal: React.FC<Props> = ({ isOpen, onClose 
                     </span>
                     <DollarSign className="w-4 h-4 text-emerald-400" />
                   </div>
-                  <h3 className="text-2xl font-black text-white font-mono">
-                    ₹{fin?.totalCashCollected || 0}
-                  </h3>
+                  {fin?.totalCashCollected === 0 && (fin?.aiEstimatedVisualCash || 0) > 0 ? (
+                    <div>
+                      <h3 className="text-2xl font-black text-amber-400 font-mono">
+                        ₹{fin?.aiEstimatedVisualCash}
+                      </h3>
+                      <span className="text-[9px] text-amber-300 font-bold block mt-0.5">
+                        (AI कैमरा अनुमानित • बिना बिल कैश)
+                      </span>
+                    </div>
+                  ) : (
+                    <h3 className="text-2xl font-black text-white font-mono">
+                      ₹{fin?.totalCashCollected || 0}
+                    </h3>
+                  )}
                   <div className="flex items-center justify-between text-[11px] text-dark-300 pt-1 border-t border-dark-800">
                     <span>कैश इन: ₹{fin?.totalCashCollected || 0}</span>
                     <span>खर्च: ₹{fin?.cashOutExpenses || 0}</span>
