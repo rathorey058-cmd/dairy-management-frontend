@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import API from '../../api';
 import { 
   Play, Pause, FastForward, Calendar, 
-  Clock, Video, Download, RefreshCw, X, 
-  AlertTriangle, HardDrive
+  Clock, Video, RefreshCw, X, 
+  AlertTriangle, HardDrive, Sparkles, Copy, Check
 } from 'lucide-react';
 
 interface CameraDevice {
@@ -33,6 +33,67 @@ export const DvrPlaybackModal: React.FC<Props> = ({ isOpen, onClose, cameras }) 
   const [isPlaying, setIsPlaying] = useState(true);
   const [playbackSpeed, setPlaybackSpeed] = useState<number>(1);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [frameBlobUrl, setFrameBlobUrl] = useState<string | null>(null);
+  const [copiedRtsp, setCopiedRtsp] = useState(false);
+  const [isAuditingFast, setIsAuditingFast] = useState(false);
+  const [auditSummary, setAuditSummary] = useState<any | null>(null);
+  const streamIntervalRef = useRef<any>(null);
+
+  const fetchPlaybackFrame = async () => {
+    if (!selectedCamId) return;
+    try {
+      const snapRes = await API.get(`/cameras/${selectedCamId}/live-snapshot?t=${Date.now()}`, {
+        responseType: 'blob'
+      });
+      const objectUrl = URL.createObjectURL(snapRes.data);
+      setFrameBlobUrl((prev) => {
+        if (prev && prev.startsWith('blob:')) {
+          URL.revokeObjectURL(prev);
+        }
+        return objectUrl;
+      });
+    } catch (e) {
+      console.warn('Playback frame fetch error:', e);
+    }
+  };
+
+  useEffect(() => {
+    if (playbackInfo && isPlaying) {
+      fetchPlaybackFrame();
+      streamIntervalRef.current = setInterval(fetchPlaybackFrame, 2500 / playbackSpeed);
+    } else {
+      if (streamIntervalRef.current) clearInterval(streamIntervalRef.current);
+    }
+    return () => {
+      if (streamIntervalRef.current) clearInterval(streamIntervalRef.current);
+    };
+  }, [playbackInfo, isPlaying, playbackSpeed, selectedCamId]);
+
+  const handleCopyRtsp = () => {
+    if (!playbackInfo?.playbackRtspUrl) return;
+    navigator.clipboard.writeText(playbackInfo.playbackRtspUrl);
+    setCopiedRtsp(true);
+    setTimeout(() => setCopiedRtsp(false), 2000);
+  };
+
+  const handleFastAiAudit = async () => {
+    try {
+      setIsAuditingFast(true);
+      setAuditSummary(null);
+      const res = await API.get('/cameras/reports/time-interval', {
+        params: {
+          date: playbackDate,
+          startTime: playbackStartTime,
+          endTime: playbackEndTime
+        }
+      });
+      setAuditSummary(res.data);
+    } catch (err: any) {
+      alert('फास्ट AI ऑडिट में त्रुटि आई।');
+    } finally {
+      setIsAuditingFast(false);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -185,11 +246,18 @@ export const DvrPlaybackModal: React.FC<Props> = ({ isOpen, onClose, cameras }) 
           <div className="relative rounded-3xl overflow-hidden bg-black aspect-video max-h-[55vh] mx-auto w-full border border-dark-800 shadow-2xl flex items-center justify-center group">
             
             {playbackInfo ? (
-              <img
-                src={playbackInfo.playbackSnapshotUrl}
-                alt="DVR Playback"
-                className="w-full h-full object-contain"
-              />
+              frameBlobUrl ? (
+                <img
+                  src={frameBlobUrl}
+                  alt="DVR Playback"
+                  className="w-full h-full object-contain"
+                />
+              ) : (
+                <div className="text-center p-8 space-y-3">
+                  <RefreshCw className="w-8 h-8 text-indigo-400 animate-spin mx-auto" />
+                  <p className="text-xs text-dark-300 font-bold">DVR हार्ड डिस्क से रिकॉर्डिंग फ्रेम लोड हो रहा है...</p>
+                </div>
+              )
             ) : (
               <div className="text-center p-8 space-y-3">
                 <Video className="w-12 h-12 text-dark-600 mx-auto" />
@@ -219,6 +287,39 @@ export const DvrPlaybackModal: React.FC<Props> = ({ isOpen, onClose, cameras }) 
               </>
             )}
           </div>
+
+          {/* Instant AI Audit Results for this time window */}
+          {auditSummary && (
+            <div className="p-4 rounded-2xl bg-indigo-950/40 border border-indigo-500/30 space-y-2 text-xs">
+              <div className="flex items-center justify-between text-indigo-300 font-bold">
+                <span className="flex items-center gap-1.5">
+                  <Sparkles className="w-4 h-4" />
+                  फास्ट AI ऑडिट परिणाम ({playbackDate} • {playbackStartTime} से {playbackEndTime})
+                </span>
+                <span className="text-white">
+                  कुल बिक्री: ₹{auditSummary.financialSummary?.totalGrossSales || 0}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-dark-300">
+                <div className="bg-dark-900/60 p-2 rounded-xl border border-dark-800">
+                  <span className="text-[10px] text-dark-500 block">ग्राहक फुटफॉल</span>
+                  <span className="font-bold text-white text-sm">{auditSummary.aiInsights?.totalFootfall || 0} ग्राहक</span>
+                </div>
+                <div className="bg-dark-900/60 p-2 rounded-xl border border-dark-800">
+                  <span className="text-[10px] text-dark-500 block">दूध बिक्री</span>
+                  <span className="font-bold text-white text-sm">{auditSummary.salesBreakdown?.milkSales?.totalLitres || 0} L</span>
+                </div>
+                <div className="bg-dark-900/60 p-2 rounded-xl border border-dark-800">
+                  <span className="text-[10px] text-dark-500 block">कैश गल्ला</span>
+                  <span className="font-bold text-emerald-400 text-sm">₹{auditSummary.financialSummary?.totalCashCollected || 0}</span>
+                </div>
+                <div className="bg-dark-900/60 p-2 rounded-xl border border-dark-800">
+                  <span className="text-[10px] text-dark-500 block">गल्ला स्थिति</span>
+                  <span className="font-bold text-amber-400 text-sm">{auditSummary.gallaCamera?.drawerOpenings || 0} बार खुला</span>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Playback Controls Toolbar */}
           {playbackInfo && (
@@ -252,14 +353,25 @@ export const DvrPlaybackModal: React.FC<Props> = ({ isOpen, onClose, cameras }) 
               </div>
 
               <div className="flex items-center gap-2">
-                <a
-                  href={playbackInfo.playbackSnapshotUrl}
-                  download={`playback_${playbackDate}_ch${playbackInfo.channel}.jpg`}
-                  className="py-2 px-3 rounded-xl bg-dark-900 hover:bg-dark-800 text-white font-bold flex items-center gap-1.5 border border-dark-800 transition-all text-xs"
+                <button
+                  type="button"
+                  onClick={handleFastAiAudit}
+                  disabled={isAuditingFast}
+                  className="py-2 px-3 rounded-xl bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-300 border border-indigo-500/30 font-bold flex items-center gap-1.5 transition-all text-xs"
                 >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>स्नैपशॉट डाउनलोड करें</span>
-                </a>
+                  {isAuditingFast ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                  <span>⚡ 3-सेकंड फास्ट AI ऑडिट</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleCopyRtsp}
+                  className="py-2 px-3 rounded-xl bg-dark-900 hover:bg-dark-800 text-white font-bold flex items-center gap-1.5 border border-dark-800 transition-all text-xs"
+                  title="VLC / MX Player में 1080p वीडियो चलाने के लिए RTSP लिंक कॉपी करें"
+                >
+                  {copiedRtsp ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedRtsp ? 'लिंक कॉपी हुआ!' : 'RTSP कॉपी'}</span>
+                </button>
               </div>
 
             </div>
