@@ -172,8 +172,23 @@ class MobileYoloEngine {
   }
 
   private filterTopDetections(items: DetectedObject[]): DetectedObject[] {
-    // Keep max 15 best detections
-    return items.sort((a, b) => b.confidence - a.confidence).slice(0, 15);
+    // Real NMS (IoU) so one person is not counted many times
+    const sorted = [...items].sort((a, b) => b.confidence - a.confidence);
+    const kept: DetectedObject[] = [];
+    const iou = (a: DetectedObject, b: DetectedObject) => {
+      const x1 = Math.max(a.box.x, b.box.x);
+      const y1 = Math.max(a.box.y, b.box.y);
+      const x2 = Math.min(a.box.x + a.box.width, b.box.x + b.box.width);
+      const y2 = Math.min(a.box.y + a.box.height, b.box.y + b.box.height);
+      const inter = Math.max(0, x2 - x1) * Math.max(0, y2 - y1);
+      const uni = a.box.width * a.box.height + b.box.width * b.box.height - inter;
+      return uni > 0 ? inter / uni : 0;
+    };
+    for (const d of sorted) {
+      if (kept.every((k) => k.className !== d.className || iou(k, d) < 0.45)) kept.push(d);
+      if (kept.length >= 15) break;
+    }
+    return kept;
   }
 
   /**

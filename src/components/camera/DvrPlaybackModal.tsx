@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+﻿import React, { useState, useEffect, useRef } from 'react';
 import API from '../../api';
 import { 
   Play, Pause, FastForward, Calendar, 
@@ -33,41 +33,27 @@ export const DvrPlaybackModal: React.FC<Props> = ({ isOpen, onClose, cameras }) 
   const [isPlaying, setIsPlaying] = useState(true);
   const [playbackSpeed, setPlaybackSpeed] = useState<number>(1);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [frameBlobUrl, setFrameBlobUrl] = useState<string | null>(null);
   const [copiedRtsp, setCopiedRtsp] = useState(false);
   const [isAuditingFast, setIsAuditingFast] = useState(false);
   const [auditSummary, setAuditSummary] = useState<any | null>(null);
   const streamIntervalRef = useRef<any>(null);
 
-  const fetchPlaybackFrame = async () => {
-    if (!selectedCamId) return;
-    try {
-      const snapRes = await API.get(`/cameras/${selectedCamId}/live-snapshot?t=${Date.now()}`, {
-        responseType: 'blob'
-      });
-      const objectUrl = URL.createObjectURL(snapRes.data);
-      setFrameBlobUrl((prev) => {
-        if (prev && prev.startsWith('blob:')) {
-          URL.revokeObjectURL(prev);
-        }
-        return objectUrl;
-      });
-    } catch (e) {
-      console.warn('Playback frame fetch error:', e);
-    }
-  };
+  const [timeline, setTimeline] = useState<any | null>(null);
+  const [eventIdx, setEventIdx] = useState(0);
+  const imgEvents: any[] = (timeline?.events || []).filter((e: any) => e.image);
 
+  // Slideshow over REAL recorded AI event frames of the chosen time window (not live feed)
   useEffect(() => {
-    if (playbackInfo && isPlaying) {
-      fetchPlaybackFrame();
-      streamIntervalRef.current = setInterval(fetchPlaybackFrame, 2500 / playbackSpeed);
-    } else {
-      if (streamIntervalRef.current) clearInterval(streamIntervalRef.current);
+    if (streamIntervalRef.current) clearInterval(streamIntervalRef.current);
+    if (playbackInfo && isPlaying && imgEvents.length > 1) {
+      streamIntervalRef.current = setInterval(() => {
+        setEventIdx((i) => (i + 1) % imgEvents.length);
+      }, 2500 / playbackSpeed);
     }
     return () => {
       if (streamIntervalRef.current) clearInterval(streamIntervalRef.current);
     };
-  }, [playbackInfo, isPlaying, playbackSpeed, selectedCamId]);
+  }, [playbackInfo, isPlaying, playbackSpeed, imgEvents.length]);
 
   const handleCopyRtsp = () => {
     if (!playbackInfo?.playbackRtspUrl) return;
@@ -119,6 +105,14 @@ export const DvrPlaybackModal: React.FC<Props> = ({ isOpen, onClose, cameras }) 
 
       setPlaybackInfo(res.data);
       setIsPlaying(true);
+      setEventIdx(0);
+
+      // Load REAL recorded AI events for the chosen window + auto-run report
+      const tl = await API.get('/cameras/playback/timeline', {
+        params: { date: playbackDate, startTime: playbackStartTime, endTime: playbackEndTime },
+      });
+      setTimeline(tl.data);
+      handleFastAiAudit();
     } catch (err: any) {
       setErrorMessage(err.response?.data?.message || 'DVR हार्ड डिस्क से रिकॉर्डिंग ट्रैक नहीं मिल सका।');
     } finally {
@@ -246,16 +240,26 @@ export const DvrPlaybackModal: React.FC<Props> = ({ isOpen, onClose, cameras }) 
           <div className="relative rounded-3xl overflow-hidden bg-black aspect-video max-h-[55vh] mx-auto w-full border border-dark-800 shadow-2xl flex items-center justify-center group">
             
             {playbackInfo ? (
-              frameBlobUrl ? (
-                <img
-                  src={frameBlobUrl}
-                  alt="DVR Playback"
-                  className="w-full h-full object-contain"
-                />
+              imgEvents.length > 0 ? (
+                <>
+                  <img
+                    src={imgEvents[eventIdx % imgEvents.length].image}
+                    alt="AI Recorded Frame"
+                    className="w-full h-full object-contain"
+                  />
+                  <div className="absolute bottom-3 left-3 px-3 py-1 rounded-xl bg-black/70 text-xs font-mono text-white border border-white/10">
+                    {new Date(imgEvents[eventIdx % imgEvents.length].time).toLocaleTimeString('hi-IN')} • +{imgEvents[eventIdx % imgEvents.length].count || 1} ग्राहक
+                  </div>
+                </>
               ) : (
-                <div className="text-center p-8 space-y-3">
-                  <RefreshCw className="w-8 h-8 text-indigo-400 animate-spin mx-auto" />
-                  <p className="text-xs text-dark-300 font-bold">DVR हार्ड डिस्क से रिकॉर्डिंग फ्रेम लोड हो रहा है...</p>
+                <div className="text-center p-8 space-y-2 max-w-md">
+                  <AlertTriangle className="w-8 h-8 text-amber-400 mx-auto" />
+                  <p className="text-sm text-white font-bold">इस समय का कोई AI रिकॉर्ड नहीं मिला</p>
+                  <p className="text-xs text-dark-400">
+                    {timeline?.recorderFirstDataAt
+                      ? `AI रिकॉर्डर का पहला डेटा ${new Date(timeline.recorderFirstDataAt).toLocaleString('hi-IN')} से है। उससे पहले का डेटा सिर्फ़ DVR में है — उसे "RTSP कॉपी" से VLC में देखें।`
+                      : 'AI रिकॉर्डर (edge_ai) अभी तक चालू नहीं हुआ, इसलिए कोई डेटा सेव नहीं है। उसे चालू करने के बाद से हर ग्राहक का समय और फोटो यहाँ दिखेगा।'}
+                  </p>
                 </div>
               )
             ) : (

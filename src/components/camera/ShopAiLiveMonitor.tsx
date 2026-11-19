@@ -103,6 +103,13 @@ export const ShopAiLiveMonitor: React.FC<Props> = ({
   const [mobileDetections, setMobileDetections] = useState<DetectedObject[]>([]);
   const [_mobileYoloReady, setMobileYoloReady] = useState(false);
 
+  // Keep latest snapshot in a ref so the worker is NOT restarted on every frame
+  // (restarting on each frame kept resetting the 3s timer so detection never ran).
+  const liveSnapshotRef = useRef<string | null>(null);
+  useEffect(() => {
+    liveSnapshotRef.current = liveSnapshotUrl;
+  }, [liveSnapshotUrl]);
+
   useEffect(() => {
     mobileYolo.initModel().then((ready) => {
       setMobileYoloReady(ready);
@@ -110,7 +117,7 @@ export const ShopAiLiveMonitor: React.FC<Props> = ({
 
     if (isMobileYoloActive) {
       mobileYolo.startMobileBackgroundWorker(
-        () => liveSnapshotUrl,
+        () => liveSnapshotRef.current,
         (dets) => setMobileDetections(dets)
       );
     }
@@ -118,7 +125,7 @@ export const ShopAiLiveMonitor: React.FC<Props> = ({
     return () => {
       mobileYolo.stopMobileBackgroundWorker();
     };
-  }, [liveSnapshotUrl, isMobileYoloActive]);
+  }, [isMobileYoloActive]);
 
   const webcamVideoRef = useRef<HTMLVideoElement>(null);
   const snapshotIntervalRef = useRef<any>(null);
