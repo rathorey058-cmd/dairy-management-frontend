@@ -10,6 +10,7 @@ import {
 import { UltraCrispIncidentCard, type UltraCrispIncidentItem } from './UltraCrispIncidentCard';
 import { ShopAiReportDetailModal } from './ShopAiReportDetailModal';
 import type { ShopAiReportItem } from './ShopAiReportDetailModal';
+import { mobileYolo, type DetectedObject } from '../../services/mobileYoloService';
 
 interface CameraDevice {
   _id: string;
@@ -96,6 +97,28 @@ export const ShopAiLiveMonitor: React.FC<Props> = ({
     const iv = setInterval(fetchPairingBlocks, 20000);
     return () => clearInterval(iv);
   }, [fetchPairingBlocks]);
+
+  // In-App Mobile YOLO Edge AI Engine (Runs directly on Phone/Tablet CPU at ₹0)
+  const [isMobileYoloActive, setIsMobileYoloActive] = useState(true);
+  const [mobileDetections, setMobileDetections] = useState<DetectedObject[]>([]);
+  const [_mobileYoloReady, setMobileYoloReady] = useState(false);
+
+  useEffect(() => {
+    mobileYolo.initModel().then((ready) => {
+      setMobileYoloReady(ready);
+    });
+
+    if (isMobileYoloActive) {
+      mobileYolo.startMobileBackgroundWorker(
+        () => liveSnapshotUrl,
+        (dets) => setMobileDetections(dets)
+      );
+    }
+
+    return () => {
+      mobileYolo.stopMobileBackgroundWorker();
+    };
+  }, [liveSnapshotUrl, isMobileYoloActive]);
 
   const webcamVideoRef = useRef<HTMLVideoElement>(null);
   const snapshotIntervalRef = useRef<any>(null);
@@ -427,6 +450,27 @@ export const ShopAiLiveMonitor: React.FC<Props> = ({
               <span>विज़ुअल ब्लॉक्स ({pairingBlocks.length})</span>
             </button>
           )}
+
+          <button
+            type="button"
+            onClick={() => {
+              if (isMobileYoloActive) {
+                mobileYolo.stopMobileBackgroundWorker();
+                setIsMobileYoloActive(false);
+              } else {
+                setIsMobileYoloActive(true);
+              }
+            }}
+            className={`px-3 py-1.5 rounded-xl border text-xs font-bold transition flex items-center gap-1.5 shadow-sm ${
+              isMobileYoloActive
+                ? 'bg-emerald-600/20 text-emerald-300 border-emerald-500/40'
+                : 'bg-dark-950 text-dark-400 border-dark-800 hover:text-white'
+            }`}
+            title="मोबाइल के अपने प्रोसेसर पर मुफ़्त YOLO AI चलाएं (₹0 API खर्च)"
+          >
+            <span className={`w-2 h-2 rounded-full ${isMobileYoloActive ? 'bg-emerald-400 animate-pulse' : 'bg-dark-500'}`} />
+            <span>📱 फोन AI {isMobileYoloActive ? 'ON' : 'OFF'}</span>
+          </button>
         </div>
       </div>
 
@@ -605,6 +649,24 @@ export const ShopAiLiveMonitor: React.FC<Props> = ({
                     </div>
                   </div>
                 ))}
+
+              {/* In-App Mobile YOLO Detections (₹0 API Cost - On Device) */}
+              {isMobileYoloActive && mobileDetections.map((det, idx) => (
+                <div
+                  key={`det-${idx}`}
+                  style={{
+                    left: `${det.box.x * 100}%`,
+                    top: `${det.box.y * 100}%`,
+                    width: `${det.box.width * 100}%`,
+                    height: `${det.box.height * 100}%`,
+                  }}
+                  className="absolute border border-emerald-400/80 rounded bg-emerald-500/10 pointer-events-none z-15 flex flex-col justify-start transition-all"
+                >
+                  <span className="text-[8px] font-bold bg-emerald-600 text-white px-1 py-0.2 rounded self-start font-mono shadow">
+                    {det.className} {det.confidence}%
+                  </span>
+                </div>
+              ))}
 
               {/* Timecode */}
               <div className="absolute bottom-3 right-3 px-2.5 py-1 rounded-lg bg-black/70 backdrop-blur-md text-[10px] font-mono text-dark-300 border border-white/10">
