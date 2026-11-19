@@ -11,7 +11,7 @@ import { ShopAiVideoUpload } from '../components/camera/ShopAiVideoUpload';
 import { ShopAiLiveMonitor } from '../components/camera/ShopAiLiveMonitor';
 import { ShopAiReportsHub } from '../components/camera/ShopAiReportsHub';
 import { ShopPersonProfilesModal } from '../components/camera/ShopPersonProfilesModal';
-import { TimeIntervalGallaReportModal } from '../components/camera/TimeIntervalGallaReportModal';
+import { QuickReportModal } from '../components/camera/QuickReportModal';
 import { DvrPlaybackModal } from '../components/camera/DvrPlaybackModal';
 import { FridgeSurveillanceModal } from '../components/camera/FridgeSurveillanceModal';
 import { StaffTerminal } from '../components/camera/StaffTerminal';
@@ -2353,7 +2353,7 @@ export const AICameraHub: React.FC = () => {
         onClose={() => setIsProfilesModalOpen(false)}
       />
 
-      <TimeIntervalGallaReportModal
+      <QuickReportModal
         isOpen={isTimeGallaModalOpen}
         onClose={() => setIsTimeGallaModalOpen(false)}
       />
