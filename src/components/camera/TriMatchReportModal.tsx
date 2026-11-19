@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import API from '../../api';
-import { X, RefreshCw, Video, Mic, Receipt, DoorOpen, CheckCircle2, AlertTriangle, Eye, Radio } from 'lucide-react';
+import { X, RefreshCw, Video, Mic, Receipt, DoorOpen, CheckCircle2, Eye, Radio } from 'lucide-react';
 
 interface Props {
   isOpen: boolean;
