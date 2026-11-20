@@ -135,7 +135,7 @@ export const VisualPairingModal: React.FC<Props> = ({ isOpen, onClose, cameras }
       setLoading(true);
       const [blocksRes, quotaRes, cansRes] = await Promise.all([
         API.get('/cameras/pairing-blocks'),
-        API.get('/tenants/my-pairing-quota'),
+        API.get('/tenant/my-pairing-quota'),
         API.get('/cameras/pairing-blocks/reusable-summary')
       ]);
 
@@ -146,7 +146,7 @@ export const VisualPairingModal: React.FC<Props> = ({ isOpen, onClose, cameras }
       }
       if (cansRes.data?.summary) setReusableSummary(cansRes.data);
       if (!myTenantId) {
-        API.get('/tenants/settings').then((r) => {
+        API.get('/tenant/settings').then((r) => {
           if (r.data?.tenant?.id) setMyTenantId(String(r.data.tenant.id));
         }).catch(() => {});
       }
@@ -162,7 +162,7 @@ export const VisualPairingModal: React.FC<Props> = ({ isOpen, onClose, cameras }
     if (!isSuperAdmin) return;
     try {
       setLoadingTenants(true);
-      const res = await API.get('/tenants/admin/pairing-limits');
+      const res = await API.get('/tenant/admin/pairing-limits');
       if (res.data?.tenants) {
         setAllTenants(res.data.tenants);
       }
@@ -237,16 +237,16 @@ export const VisualPairingModal: React.FC<Props> = ({ isOpen, onClose, cameras }
     setSlabNotice(null);
     try {
       try {
-        await API.post('/tenants/upgrade-slab', { slabId: opts.slabId, addOnId: opts.addOnId });
+        await API.post('/tenant/upgrade-slab', { slabId: opts.slabId, addOnId: opts.addOnId });
       } catch (innerErr: any) {
         // Fallback to already-deployed Render endpoint so MongoDB Atlas updates immediately
         let tid = myTenantId || quota?.tenantId;
         if (!tid) {
-          const sr = await API.get('/tenants/settings');
+          const sr = await API.get('/tenant/settings');
           tid = sr.data?.tenant?.id;
         }
         if (!tid) throw innerErr;
-        await API.put(`/tenants/admin/pairing-limits/${tid}`, {
+        await API.put(`/tenant/admin/pairing-limits/${tid}`, {
           planTier: opts.targetLimit > 15 ? 'PAID' : 'FREE',
           allowedBlocksLimit: opts.targetLimit,
           freeBlocksCount: 15,
@@ -364,7 +364,7 @@ export const VisualPairingModal: React.FC<Props> = ({ isOpen, onClose, cameras }
     if (!selectedTenantToEdit) return;
     try {
       setSavingAdminLimit(true);
-      await API.put(`/tenants/admin/pairing-limits/${selectedTenantToEdit.id}`, {
+      await API.put(`/tenant/admin/pairing-limits/${selectedTenantToEdit.id}`, {
         planTier: adminTier,
         allowedBlocksLimit: adminLimit,
         freeBlocksCount: adminFreeCount,
