@@ -228,6 +228,9 @@ class MobileYoloEngine {
           if (ny2 < 0.38 || d.box.height < 0.22) return false; // street passersby
           return cx >= 0.22 && cx <= 0.64 && ny2 >= 0.38 && ny2 <= 0.56;
         });
+        if (counterCustomers.length > this.lastPersonCount) {
+          this.totalFootfallToday += counterCustomers.length - this.lastPersonCount;
+        }
         this.lastPersonCount = counterCustomers.length;
 
       } catch (e) {
