@@ -1,5 +1,6 @@
-﻿import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import API from '../../api';
+import { parseVisitsFromTimeline } from './QuickReportModal';
 import { 
   Play, Pause, FastForward, Calendar, 
   Clock, Video, RefreshCw, X, 
@@ -86,20 +87,24 @@ export const DvrPlaybackModal: React.FC<Props> = ({ isOpen, onClose, cameras }) 
       ]);
 
       if (tlRes.data) setTimeline(tlRes.data);
+      const parsedVisits = parseVisitsFromTimeline(tlRes.data);
+      const aiGallaSum = parsedVisits.reduce((s, v) => s + v.amountPaid, 0);
       const base = tiRes.data || {};
       const h = dsRes.data?.headline || {};
-      const footfall = tlRes.data?.customers ?? h.customers ?? base.aiSurveillance?.totalFootfall ?? 0;
-      const gallaOpens = h.gallaOpenings ?? base.aiSurveillance?.drawerOpeningsCount ?? 0;
+      const footfall = parsedVisits.reduce((s, v) => s + v.people, 0) || tlRes.data?.customers || h.customers || base.aiSurveillance?.totalFootfall || 0;
+      const gallaOpens = parsedVisits.filter((v) => v.gallaDeposited).length || h.gallaOpenings || base.aiSurveillance?.drawerOpeningsCount || 0;
+      const totalSalesVal = Math.max(aiGallaSum, Number(h.sales || base.financialSummary?.totalGrossSales || 0));
 
       setAuditSummary({
         ...base,
+        parsedVisits,
         financialSummary: {
-          totalGrossSales: h.sales ?? base.financialSummary?.totalGrossSales ?? 0,
-          totalCashCollected: h.cash ?? base.financialSummary?.totalCashCollected ?? 0,
+          totalGrossSales: totalSalesVal,
+          totalCashCollected: Math.max(aiGallaSum, Number(h.cash || base.financialSummary?.totalCashCollected || 0)),
         },
         salesBreakdown: {
           milkSales: {
-            totalLitres: base.salesBreakdown?.milkSales?.totalLitres ?? 0,
+            totalLitres: base.salesBreakdown?.milkSales?.totalLitres || Math.round((aiGallaSum / 60) * 10) / 10,
           },
         },
         aiSurveillance: {

@@ -12,6 +12,7 @@ import { ShopAiReportDetailModal } from './ShopAiReportDetailModal';
 import type { ShopAiReportItem } from './ShopAiReportDetailModal';
 import { mobileYolo, type DetectedObject } from '../../services/mobileYoloService';
 import { UnifiedStore360View } from './UnifiedStore360View';
+import { parseVisitsFromTimeline } from './QuickReportModal';
 import { Compass } from 'lucide-react';
 
 interface CameraDevice {
@@ -382,36 +383,24 @@ export const ShopAiLiveMonitor: React.FC<Props> = ({
       ]);
 
       const h = sumRes.data?.headline || {};
-      const tlEvents: any[] = tlRes.data?.events || [];
+      const parsedVisits = parseVisitsFromTimeline(tlRes.data);
+      const aiGallaTotal = parsedVisits.reduce((s, v) => s + v.amountPaid, 0);
       const personsNow = frameDetections.filter((d) => d.className === 'person').length;
       const objectsNow = frameDetections.map((d) => `${d.className} (${d.confidence}%)`);
       const totalPicks = pairingBlocks.reduce((acc, b) => acc + (b.shelfConfig?.pickCount || b.totalPicks || 0), 0);
-
-      // Extract latest audio heard if any
-      let latestHeard = '';
-      for (let i = tlEvents.length - 1; i >= 0; i--) {
-        const n = String(tlEvents[i]?.note || '');
-        if (n.startsWith('TRI_JSON:')) {
-          try {
-            const p = JSON.parse(n.slice(9));
-            if (p.audio && p.audio.length > 0) {
-              latestHeard = p.audio[p.audio.length - 1].text;
-              break;
-            }
-          } catch {}
-        }
-      }
+      const latestVisit = parsedVisits.length > 0 ? parsedVisits[parsedVisits.length - 1] : null;
+      const latestHeard = latestVisit ? `${latestVisit.audioQuote} (${latestVisit.requestedItem} • ₹${latestVisit.amountPaid})` : '';
 
       setInstantAuditCard({
         time: new Date().toLocaleTimeString('hi-IN'),
         cameraName: targetCam ? `${targetCam.name} [Ch #${targetCam.channel || 1}]` : 'DVR Live Camera',
         personsNow,
         objectsNow,
-        todayCustomers: h.customers ?? tlRes.data?.customers ?? 0,
-        todayBills: h.bills ?? 0,
-        todaySales: h.sales ?? 0,
-        todayCash: h.cash ?? 0,
-        gallaOpenings: h.gallaOpenings ?? 0,
+        todayCustomers: parsedVisits.reduce((s, v) => s + v.people, 0) || h.customers || tlRes.data?.customers || 0,
+        todayBills: parsedVisits.length || h.bills || 0,
+        todaySales: Math.max(aiGallaTotal, Number(h.sales || 0)),
+        todayCash: Math.max(aiGallaTotal, Number(h.cash || 0)),
+        gallaOpenings: parsedVisits.filter((v) => v.gallaDeposited).length || h.gallaOpenings || 0,
         activeBlocks: pairingBlocks.length,
         totalPicks,
         latestHeard,
