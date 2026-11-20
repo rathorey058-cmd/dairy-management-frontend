@@ -2,26 +2,26 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import API from '../../api';
 import {
   Video, Upload, Camera, Mic, MicOff, Volume2, VolumeX,
-  Play, Pause, Trash2, RotateCcw, ShieldAlert,
-  FileBarChart2, HardDrive, Settings, Palette, ArrowLeftRight
+  Play, Pause, Trash2, RotateCcw, ShieldAlert, LayoutGrid,
+  Maximize2, Minimize2, FileBarChart2, HardDrive, Settings,
+  Palette, ArrowLeftRight
 } from 'lucide-react';
 
 type ZoneType = 'gate' | 'customer' | 'tank' | 'ignore' | 'galla';
 
 interface DrawnZone {
   id: string;
+  cameraKey: string; // camera._id or 'FILE' or 'WEBCAM'
+  cameraLabel?: string;
   type: ZoneType;
   name: string;
-  // Normalized coordinates (0..1) so resizing canvas never shifts zones
   x1: number;
   y1: number;
   x2: number;
   y2: number;
-  // Tank/item specific
   capacity?: number;
   currentEstimate?: number;
   baselineColor?: [number, number, number];
-  // Gate specific
   outSign?: 1 | -1;
 }
 
@@ -56,19 +56,20 @@ const DEFAULT_RATE_LIST = `दूध=60
 छाछ=20`;
 
 const HINDI_NUMS: Record<string, number> = {
-  'पाव': 0.25, 'आधा': 0.5, 'आधी': 0.5, 'एक': 1, 'दो': 2, 'तीन': 3,
-  'चार': 4, 'पांच': 5, 'पाँच': 5, 'छह': 6, 'सात': 7, 'आठ': 8, 'नौ': 9,
-  'दस': 10, 'पंद्रह': 15, 'बीस': 20, 'पच्चीस': 25, 'तीस': 30,
+  'पाव': 0.25, 'पाओ': 0.25, 'आधा': 0.5, 'आधी': 0.5, 'डेढ़': 1.5, 'ढाई': 2.5,
+  'एक': 1, 'दो': 2, 'तीन': 3, 'चार': 4, 'पांच': 5, 'पाँच': 5,
+  'छह': 6, 'सात': 7, 'आठ': 8, 'नौ': 9,
+  'दस': 10, 'पंद्रह': 15, 'बीस': 20, 'बिस': 20, 'पच्चीस': 25, 'तीस': 30,
   'चालीस': 40, 'पचास': 50, 'साठ': 60, 'सत्तर': 70, 'अस्सी': 80,
-  'नब्बे': 90, 'सौ': 100,
+  'नब्बे': 90, 'सौ': 100, 'दो सौ': 200, 'पाँच सौ': 500,
 };
 
 const ZONE_META: Record<ZoneType, { label: string; short: string; color: string; defaultPrefix: string }> = {
-  gate:     { label: 'गेट लाइन (चोरी अलर्ट)',   short: 'गेट',     color: '#059669', defaultPrefix: 'गेट' },
-  customer: { label: 'ग्राहक ज़ोन',             short: 'ग्राहक',  color: '#2563EB', defaultPrefix: 'ग्राहक' },
-  tank:     { label: 'टंकी / सामान ज़ोन',        short: 'टंकी',    color: '#0D9488', defaultPrefix: 'टंकी' },
+  gate:     { label: 'गेट लाइन (चोरी अलर्ट)',     short: 'गेट',     color: '#059669', defaultPrefix: 'गेट' },
+  customer: { label: 'ग्राहक ज़ोन',               short: 'ग्राहक',  color: '#2563EB', defaultPrefix: 'ग्राहक' },
+  tank:     { label: 'टंकी / सामान ज़ोन',          short: 'टंकी',    color: '#0D9488', defaultPrefix: 'टंकी' },
   ignore:   { label: 'अनदेखा ज़ोन (सड़क/ट्रैफ़िक)', short: 'अनदेखा', color: '#71717A', defaultPrefix: 'अनदेखा' },
-  galla:    { label: 'गल्ला ज़ोन',               short: 'गल्ला',   color: '#D97706', defaultPrefix: 'गल्ला' },
+  galla:    { label: 'गल्ला ज़ोन',                 short: 'गल्ला',   color: '#D97706', defaultPrefix: 'गल्ला' },
 };
 
 const formatVideoTime = (sec: number) => {
@@ -87,29 +88,40 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
   onOpenDvrPlayback,
   onOpenCameraSettings,
 }) => {
-  // Video source state
-  const [sourceMode, setSourceMode] = useState<'FILE' | 'WEBCAM' | 'DVR'>('FILE');
-  const [selectedCamId, setSelectedCamId] = useState<string>('');
+  // Video source & multi-cam layout state
+  const [sourceMode, setSourceMode] = useState<'DVR' | 'FILE' | 'WEBCAM'>('DVR');
+  const [focusedCamId, setFocusedCamId] = useState<string | null>(null); // null = show ALL cameras in grid
+  const [dvrFrames, setDvrFrames] = useState<Record<string, string>>({});
+  const [dvrStatus, setDvrStatus] = useState<Record<string, 'LIVE' | 'OFFLINE'>>({});
+
+  // Video file / webcam state
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [videoFileName, setVideoFileName] = useState<string>('');
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
-  const [dvrFrameUrl, setDvrFrameUrl] = useState<string | null>(null);
-  const [dvrError, setDvrError] = useState<string | null>(null);
 
   // Drawing tool state
-  const [drawTool, setDrawTool] = useState<ZoneType>('gate');
-  const [zoneNameInput, setZoneNameInput] = useState('गेट 1');
+  const [drawTool, setDrawTool] = useState<ZoneType>('customer');
+  const [zoneNameInput, setZoneNameInput] = useState('ग्राहक 1');
   const [tankCapacityInput, setTankCapacityInput] = useState('10');
   const [zones, setZones] = useState<DrawnZone[]>(() => {
     try {
-      const saved = localStorage.getItem('dukan_nigrani_zones_v1');
-      return saved ? JSON.parse(saved) : [];
+      const saved = localStorage.getItem('dukan_nigrani_zones_v2');
+      if (saved) return JSON.parse(saved);
+      const legacy = localStorage.getItem('dukan_nigrani_zones_v1');
+      return legacy ? JSON.parse(legacy).map((z: any) => ({ ...z, cameraKey: z.cameraKey || 'FILE' })) : [];
     } catch {
       return [];
     }
   });
-  const [dragRect, setDragRect] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
+  const [dragState, setDragState] = useState<{
+    cameraKey: string;
+    cameraLabel: string;
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
+  } | null>(null);
   const [standingZones, setStandingZones] = useState<Record<string, boolean>>({});
 
   // Today's Counters ("आज का हिसाब")
@@ -123,6 +135,7 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
 
   // Voice & Rate List state
   const [micActive, setMicActive] = useState(false);
+  const [interimText, setInterimText] = useState('');
   const [lastHeardText, setLastHeardText] = useState('');
   const [rateListText, setRateListText] = useState<string>(() => {
     return localStorage.getItem('dukan_nigrani_rates_v1') || DEFAULT_RATE_LIST;
@@ -133,18 +146,20 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
   // Activity Log
   const [logs, setLogs] = useState<ActivityLogItem[]>([]);
 
-  // Refs for real-time 10fps processing loop
+  // Refs for simultaneous multi-camera zero-lag analysis
   const videoRef = useRef<HTMLVideoElement>(null);
-  const dvrImgRef = useRef<HTMLImageElement>(null);
-  const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
+  const dvrImgRefs = useRef<Record<string, HTMLImageElement | null>>({});
+  const overlayCanvasRefs = useRef<Record<string, HTMLCanvasElement | null>>({});
   const workCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const prevFrameRef = useRef<Uint8ClampedArray | null>(null);
+  const prevFramesRef = useRef<Record<string, Uint8ClampedArray>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
   const webcamStreamRef = useRef<MediaStream | null>(null);
   const recognitionRef = useRef<any>(null);
+  const micDesiredRef = useRef(false);
 
-  // Zone runtime motion tracking refs
   const zonesRef = useRef<DrawnZone[]>(zones);
+  const dragStateRef = useRef(dragState);
+  const standingRef = useRef(standingZones);
   const zoneStateRef = useRef<Record<string, {
     motionStart: number;
     countedThisPresence: boolean;
@@ -158,9 +173,12 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
   useEffect(() => {
     zonesRef.current = zones;
     try {
-      localStorage.setItem('dukan_nigrani_zones_v1', JSON.stringify(zones));
+      localStorage.setItem('dukan_nigrani_zones_v2', JSON.stringify(zones));
     } catch { /* ignore */ }
   }, [zones]);
+
+  useEffect(() => { dragStateRef.current = dragState; }, [dragState]);
+  useEffect(() => { standingRef.current = standingZones; }, [standingZones]);
 
   useEffect(() => {
     rateListRef.current = rateListText;
@@ -169,39 +187,32 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
     } catch { /* ignore */ }
   }, [rateListText]);
 
-  useEffect(() => {
-    if (cameras.length > 0 && !selectedCamId) {
-      setSelectedCamId(cameras[0]._id);
-    }
-  }, [cameras, selectedCamId]);
-
-  // Auto-update default zone name when switching drawing tool
   const handleSelectTool = (tool: ZoneType) => {
     setDrawTool(tool);
     const sameCount = zones.filter((z) => z.type === tool).length + 1;
     setZoneNameInput(`${ZONE_META[tool].defaultPrefix} ${sameCount}`);
   };
 
-  const getVideoStamp = useCallback(() => {
+  const getVideoStamp = useCallback((camLabel?: string) => {
     if (sourceMode === 'FILE' && videoRef.current) {
       return formatVideoTime(videoRef.current.currentTime);
     }
-    return sourceMode === 'DVR' ? 'लाइव DVR' : 'लाइव वेबकैम';
+    if (sourceMode === 'WEBCAM') return 'लाइव वेबकैम';
+    return camLabel || 'लाइव DVR';
   }, [sourceMode]);
 
-  const appendLog = useCallback((zoneName: string, message: string, tone: ActivityLogItem['tone'] = 'info') => {
+  const appendLog = useCallback((zoneName: string, message: string, tone: ActivityLogItem['tone'] = 'info', camLabel?: string) => {
     const entry: ActivityLogItem = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       clockTime: nowClock(),
-      videoStamp: getVideoStamp(),
+      videoStamp: getVideoStamp(camLabel),
       zoneName,
       message,
       tone,
     };
-    setLogs((prev) => [entry, ...prev].slice(0, 120));
+    setLogs((prev) => [entry, ...prev].slice(0, 150));
   }, [getVideoStamp]);
 
-  // Stop webcam helper
   const stopWebcam = () => {
     if (webcamStreamRef.current) {
       webcamStreamRef.current.getTracks().forEach((t) => t.stop());
@@ -209,7 +220,7 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
     }
   };
 
-  // Handle Video File Upload (DVR footage)
+  // Upload Video File
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -219,8 +230,7 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
     setSourceMode('FILE');
     setVideoUrl(url);
     setVideoFileName(file.name);
-    setDvrError(null);
-    prevFrameRef.current = null;
+    delete prevFramesRef.current['FILE'];
     setTimeout(() => {
       if (videoRef.current) {
         videoRef.current.srcObject = null;
@@ -238,8 +248,7 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
       const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 960, height: 540 }, audio: false });
       webcamStreamRef.current = stream;
       setSourceMode('WEBCAM');
-      setDvrError(null);
-      prevFrameRef.current = null;
+      delete prevFramesRef.current['WEBCAM'];
       setTimeout(() => {
         if (videoRef.current) {
           videoRef.current.src = '';
@@ -249,64 +258,75 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
       }, 60);
       appendLog('वेबकैम', 'लाइव वेबकैम चालू किया गया', 'info');
     } catch {
-      setDvrError('वेबकैम की अनुमति नहीं मिली या वेबकैम उपलब्ध नहीं है।');
+      alert('वेबकैम की अनुमति नहीं मिली या वेबकैम उपलब्ध नहीं है।');
     }
   };
 
-  // Switch to Live DVR Camera Polling
+  // Switch to Live Multi-Camera DVR Mode
   const handleStartLiveDvr = () => {
     stopWebcam();
     setSourceMode('DVR');
-    setDvrError(null);
-    prevFrameRef.current = null;
-    appendLog('DVR लाइव', 'लाइव Hikvision DVR फीड से जुड़ रहा है...', 'info');
+    appendLog('DVR मल्टी-कैमरा', `${cameras.length || 0} कैमरों का लाइव फीड चालू`, 'info');
   };
 
-  // Poll Live DVR Snapshot when sourceMode === 'DVR'
+  // Staggered Multi-Camera DVR Snapshot Polling (handles 3, 4, 5+ cameras smoothly without choking DVR)
   useEffect(() => {
-    if (sourceMode !== 'DVR') return;
-    const camId = selectedCamId || cameras[0]?._id;
-    if (!camId) {
-      setDvrError('कोई DVR कैमरा कॉन्फ़िगर नहीं है। सेटअप टैब से कैमरा जोड़ें या वीडियो फ़ाइल चुनें।');
-      return;
-    }
+    if (sourceMode !== 'DVR' || cameras.length === 0) return;
     let alive = true;
-    const fetchSnap = async () => {
+    const timers: any[] = [];
+
+    const pollCamera = async (cam: any) => {
       try {
-        const res = await API.get(`/cameras/${camId}/live-snapshot`, {
+        const res = await API.get(`/cameras/${cam._id}/live-snapshot`, {
           params: { t: Date.now() },
           responseType: 'blob',
-          timeout: 4000,
+          timeout: 4500,
         });
         if (!alive) return;
         const blobUrl = URL.createObjectURL(res.data);
-        setDvrFrameUrl((prev) => {
-          if (prev) URL.revokeObjectURL(prev);
-          return blobUrl;
+        setDvrFrames((prev) => {
+          if (prev[cam._id]) URL.revokeObjectURL(prev[cam._id]);
+          return { ...prev, [cam._id]: blobUrl };
         });
-        setDvrError(null);
+        setDvrStatus((prev) => ({ ...prev, [cam._id]: 'LIVE' }));
       } catch {
-        if (alive) setDvrError('DVR लाइव स्नैपशॉट अभी ऑफ़लाइन है — आप DVR वीडियो फ़ाइल या वेबकैम से भी तुरंत एनालिसिस चला सकते हैं।');
+        if (alive) setDvrStatus((prev) => ({ ...prev, [cam._id]: 'OFFLINE' }));
       }
     };
-    fetchSnap();
-    const id = setInterval(fetchSnap, 1100);
+
+    cameras.forEach((cam, idx) => {
+      // Stagger start by 350ms per camera so Hikvision DVR never gets hit simultaneously
+      const startTimer = setTimeout(() => {
+        if (!alive) return;
+        pollCamera(cam);
+        const iv = setInterval(() => {
+          if (alive) pollCamera(cam);
+        }, Math.max(1400, cameras.length * 420));
+        timers.push(iv);
+      }, idx * 350);
+      timers.push(startTimer);
+    });
+
     return () => {
       alive = false;
-      clearInterval(id);
+      timers.forEach((t) => {
+        clearTimeout(t);
+        clearInterval(t);
+      });
     };
-  }, [sourceMode, selectedCamId, cameras]);
+  }, [sourceMode, cameras]);
 
   useEffect(() => {
     return () => {
       stopWebcam();
+      micDesiredRef.current = false;
       if (recognitionRef.current) {
         try { recognitionRef.current.stop(); } catch { /* ignore */ }
       }
     };
   }, []);
 
-  // Parse Rate List textarea ("दूध=60") into map
+  // Parse Rate List textarea ("दूध=60")
   const parseRateList = (txt: string): Record<string, number> => {
     const map: Record<string, number> = {};
     txt.split('\n').forEach((line) => {
@@ -320,7 +340,7 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
     return map;
   };
 
-  // Parse spoken Hindi order against Rate List + explicit rupees
+  // Precision Hindi Dairy Voice Parser
   const processSpokenHindi = useCallback((transcript: string) => {
     const clean = transcript.trim();
     if (!clean) return;
@@ -330,31 +350,32 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
     const rates = parseRateList(rateListRef.current);
     let computedAmt = 0;
 
-    // 1. Check explicit rupee phrases: "20 का", "50 रुपये", "₹30"
+    // 1. Explicit rupee phrases ("20 का दूध", "₹50", "50 रुपये")
     const rupeeMatch = clean.match(/(?:₹\s*(\d+))|(\d+)\s*(?:रुपये|रुपए|रू|रु|का|की|के|वाला)/i);
     if (rupeeMatch) {
       const v = parseInt(rupeeMatch[1] || rupeeMatch[2], 10);
       if (v >= 5 && v <= 50000) computedAmt = v;
     }
 
-    // 2. Check Hindi number word + का/रुपये (e.g., "बीस का दूध")
+    // 2. Hindi number word + का/की/रुपये ("बीस का दूध", "पचास रुपये")
     if (computedAmt === 0) {
       for (const [w, val] of Object.entries(HINDI_NUMS)) {
-        if (val >= 5 && (low.includes(`${w} का`) || low.includes(`${w} की`) || low.includes(`${w} रुपये`) || low.includes(`${w} रुपए`))) {
+        if (val >= 5 && (low.includes(`${w} का`) || low.includes(`${w} की`) || low.includes(`${w} के`) || low.includes(`${w} रुपये`) || low.includes(`${w} रुपए`))) {
           computedAmt = val;
           break;
         }
       }
     }
 
-    // 3. Check Rate List item + quantity (e.g., "दो दूध", "आधा दूध", "एक पनीर")
+    // 3. Rate list item + quantity ("आधा लीटर दूध", "दो दूध", "पाव भर पनीर")
     if (computedAmt === 0) {
       for (const [itemKey, unitPrice] of Object.entries(rates)) {
         if (low.includes(itemKey)) {
-          let qty = 1;
-          const numBefore = low.match(new RegExp(`(\\d+(?:\\.\\d+)?)\\s*(?:लीटर|किलो|पैकेट)?\\s*${itemKey}`));
+          let qty = 0;
+          const numBefore = low.match(new RegExp(`(\\d+(?:\\.\\d+)?)\\s*(?:लीटर|किलो|पैकेट|ग्राम)?\\s*${itemKey}`));
           if (numBefore) {
-            qty = parseFloat(numBefore[1]) || 1;
+            const rawNum = parseFloat(numBefore[1]);
+            qty = low.includes('ग्राम') ? rawNum / 1000 : rawNum;
           } else {
             for (const [w, val] of Object.entries(HINDI_NUMS)) {
               if (val <= 10 && low.includes(w)) {
@@ -363,7 +384,16 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
               }
             }
           }
-          computedAmt = Math.round(qty * unitPrice);
+          if (qty > 0) {
+            computedAmt = Math.round(qty * unitPrice);
+          } else {
+            // Standalone number spoken alongside item (e.g. "दूध दे दो 20")
+            const standalone = clean.match(/\b(\d{2,4})\b/);
+            if (standalone) {
+              const v = parseInt(standalone[1], 10);
+              if (v >= 5 && v <= 5000) computedAmt = v;
+            }
+          }
           break;
         }
       }
@@ -371,94 +401,128 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
 
     if (computedAmt > 0) {
       const now = Date.now();
-      // If Galla already opened in the last 6 seconds, match immediately!
       if (now - lastGallaEventRef.current <= 6000) {
         setMatchedVoiceCash((c) => c + computedAmt);
-        appendLog('माइक + गल्ला', `“${clean}” → ₹${computedAmt} गल्ला हलचल के साथ मिला`, 'voice');
+        appendLog('माइक + गल्ला', `“${clean}” → ₹${computedAmt} गल्ला हलचल के साथ मिला`, 'voice', 'ऑडियो');
       } else {
         const order: PendingVoiceOrder = {
-          id: `${now}`,
+          id: `${now}-${Math.random().toString(36).slice(2, 5)}`,
           amount: computedAmt,
           text: clean,
           createdAt: now,
           matched: false,
         };
         pendingVoiceRef.current.push(order);
-        appendLog('माइक', `“${clean}” (₹${computedAmt}) — 25 सेकंड में गल्ला हलचल की जाँच...`, 'voice');
+        appendLog('माइक', `“${clean}” (₹${computedAmt}) — 25 सेकंड में गल्ला जाँच...`, 'voice', 'ऑडियो');
 
-        // 25-second correlation timeout
         setTimeout(() => {
           const idx = pendingVoiceRef.current.findIndex((o) => o.id === order.id);
           if (idx !== -1 && !pendingVoiceRef.current[idx].matched) {
             pendingVoiceRef.current.splice(idx, 1);
             setSuspiciousVoiceCash((s) => s + order.amount);
-            appendLog('संदिग्ध अलर्ट', `बोला गया “${order.text}” (₹${order.amount}), पर 25 सेकंड में गल्ला नहीं खुला!`, 'alert');
+            appendLog('संदिग्ध अलर्ट', `बोला गया “${order.text}” (₹${order.amount}), पर 25 सेकंड में गल्ला नहीं खुला!`, 'alert', 'ऑडियो');
           }
         }, 25000);
       }
+    } else {
+      appendLog('माइक', `सुना गया: “${clean}”`, 'info', 'ऑडियो');
     }
   }, [appendLog]);
 
-  // Browser Web Speech API Mic Toggle (Zero Cost, Chrome/Edge)
+  // Reliable Auto-Restarting Chrome Web Speech API Mic
   const toggleMic = () => {
     if (micActive) {
+      micDesiredRef.current = false;
       if (recognitionRef.current) {
         try { recognitionRef.current.stop(); } catch { /* ignore */ }
       }
       setMicActive(false);
-      appendLog('माइक', 'वॉयस माइक बंद किया गया', 'info');
+      setInterimText('');
+      appendLog('माइक', 'वॉयस माइक बंद किया गया', 'info', 'ऑडियो');
       return;
     }
 
     const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRec) {
-      alert('आपके ब्राउज़र में Web Speech API उपलब्ध नहीं है। कृपया Google Chrome या Edge का उपयोग करें।');
+      alert('आपके ब्राउज़र में Web Speech API उपलब्ध नहीं है। कृपया Google Chrome या Microsoft Edge का उपयोग करें।');
       return;
     }
 
+    micDesiredRef.current = true;
     const rec = new SpeechRec();
     rec.lang = 'hi-IN';
     rec.continuous = true;
-    rec.interimResults = false;
+    rec.interimResults = true;
     rec.onresult = (event: any) => {
+      let interim = '';
       for (let i = event.resultIndex; i < event.results.length; i++) {
+        const t = event.results[i][0]?.transcript || '';
         if (event.results[i].isFinal) {
-          const spoken = event.results[i][0]?.transcript || '';
-          processSpokenHindi(spoken);
+          setInterimText('');
+          processSpokenHindi(t);
+        } else {
+          interim += t;
         }
       }
+      if (interim) setInterimText(interim);
     };
-    rec.onerror = () => {};
+    rec.onerror = (e: any) => {
+      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+        micDesiredRef.current = false;
+        setMicActive(false);
+      }
+    };
     rec.onend = () => {
-      if (recognitionRef.current === rec) {
-        try { rec.start(); } catch { setMicActive(false); }
+      if (micDesiredRef.current) {
+        setTimeout(() => {
+          if (micDesiredRef.current) {
+            try { rec.start(); } catch { setMicActive(false); }
+          }
+        }, 250);
       }
     };
     recognitionRef.current = rec;
     try {
       rec.start();
       setMicActive(true);
-      appendLog('माइक', 'लाइव हिंदी वॉयस मॉनिटरिंग चालू (Chrome Web Speech)', 'voice');
+      appendLog('माइक', 'लाइव हिंदी वॉयस मॉनिटरिंग चालू', 'voice', 'ऑडियो');
     } catch {
+      micDesiredRef.current = false;
       setMicActive(false);
     }
   };
 
-  // Capture Baseline Color for a Tank / Item Zone
+  // Capture Baseline Color for a Tank / Item Zone on its specific camera
   const captureTankBaseline = (zoneId: string) => {
-    const work = workCanvasRef.current;
-    if (!work) return;
-    const ctx = work.getContext('2d');
-    if (!ctx) return;
     const z = zonesRef.current.find((item) => item.id === zoneId);
     if (!z) return;
+    const work = workCanvasRef.current;
+    if (!work) return;
+    const wctx = work.getContext('2d', { willReadFrequently: true });
+    if (!wctx) return;
+
     const W = work.width;
     const H = work.height;
+    let drew = false;
+    if (z.cameraKey === 'FILE' || z.cameraKey === 'WEBCAM') {
+      if (videoRef.current && videoRef.current.readyState >= 2) {
+        wctx.drawImage(videoRef.current, 0, 0, W, H);
+        drew = true;
+      }
+    } else {
+      const img = dvrImgRefs.current[z.cameraKey];
+      if (img && img.complete && img.naturalWidth > 0) {
+        wctx.drawImage(img, 0, 0, W, H);
+        drew = true;
+      }
+    }
+    if (!drew) return;
+
     const x0 = Math.floor(Math.min(z.x1, z.x2) * W);
     const y0 = Math.floor(Math.min(z.y1, z.y2) * H);
     const w = Math.max(2, Math.floor(Math.abs(z.x2 - z.x1) * W));
     const h = Math.max(2, Math.floor(Math.abs(z.y2 - z.y1) * H));
-    const imgData = ctx.getImageData(x0, y0, w, h).data;
+    const imgData = wctx.getImageData(x0, y0, w, h).data;
     let r = 0, g = 0, b = 0, cnt = 0;
     for (let i = 0; i < imgData.length; i += 16) {
       r += imgData[i];
@@ -471,13 +535,16 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
     setZones((prev) =>
       prev.map((item) => (item.id === zoneId ? { ...item, baselineColor: avg, currentEstimate: item.capacity || 10 } : item))
     );
-    appendLog(z.name, `भरी हुई टंकियों का रंग बेसलाइन सेट किया गया (${z.capacity || 10} नग)`, 'info');
+    appendLog(z.name, `भरी हुई टंकियों का रंग बेसलाइन सेट किया गया (${z.capacity || 10} नग)`, 'info', z.cameraLabel);
   };
 
-  // Real-Time Motion, Zone, Gate Tripwire & Tank Color Analysis Loop (Runs 100% locally in browser)
+  // =========================================================================
+  // SIMULTANEOUS MULTI-CAMERA MOTION & VECTOR OVERLAY LOOP (ZERO-LAG)
+  // Analyzes ALL connected cameras (3, 4, 5+) independently on every tick!
+  // =========================================================================
   useEffect(() => {
-    const W = 320;
-    const H = 180;
+    const W = 240;
+    const H = 135;
     if (!workCanvasRef.current) {
       const c = document.createElement('canvas');
       c.width = W;
@@ -485,30 +552,35 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
       workCanvasRef.current = c;
     }
 
-    const tick = () => {
-      const overlay = overlayCanvasRef.current;
+    const analyzeSource = (
+      cameraKey: string,
+      cameraLabel: string,
+      sourceEl: HTMLImageElement | HTMLVideoElement | null
+    ) => {
       const work = workCanvasRef.current;
-      if (!overlay || !work) return;
+      const overlay = overlayCanvasRefs.current[cameraKey];
+      if (!work) return;
       const wctx = work.getContext('2d', { willReadFrequently: true });
-      const octx = overlay.getContext('2d');
-      if (!wctx || !octx) return;
+      if (!wctx) return;
 
-      // 1. Draw current video/DVR frame onto small 320x180 analysis canvas
+      const camZones = zonesRef.current.filter((z) => z.cameraKey === cameraKey);
+      const ignoreZones = camZones.filter((z) => z.type === 'ignore');
+
       let hasFrame = false;
-      if (sourceMode === 'DVR' && dvrImgRef.current && dvrImgRef.current.complete && dvrImgRef.current.naturalWidth > 0) {
-        wctx.drawImage(dvrImgRef.current, 0, 0, W, H);
-        hasFrame = true;
-      } else if ((sourceMode === 'FILE' || sourceMode === 'WEBCAM') && videoRef.current && videoRef.current.readyState >= 2) {
-        wctx.drawImage(videoRef.current, 0, 0, W, H);
-        hasFrame = true;
+      if (sourceEl) {
+        if (sourceEl instanceof HTMLVideoElement && sourceEl.readyState >= 2) {
+          wctx.drawImage(sourceEl, 0, 0, W, H);
+          hasFrame = true;
+        } else if (sourceEl instanceof HTMLImageElement && sourceEl.complete && sourceEl.naturalWidth > 0) {
+          wctx.drawImage(sourceEl, 0, 0, W, H);
+          hasFrame = true;
+        }
       }
 
-      if (hasFrame) {
+      if (hasFrame && camZones.length > 0) {
         const cur = wctx.getImageData(0, 0, W, H).data;
-        const prev = prevFrameRef.current;
+        const prev = prevFramesRef.current[cameraKey];
         const now = Date.now();
-        const activeZones = zonesRef.current;
-        const ignoreZones = activeZones.filter((z) => z.type === 'ignore');
 
         const isIgnored = (px: number, py: number) => {
           const nx = px / W;
@@ -519,9 +591,10 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
         };
 
         if (prev && prev.length === cur.length) {
-          const nextStanding: Record<string, boolean> = {};
+          let standingChanged = false;
+          const nextStanding = { ...standingRef.current };
 
-          activeZones.forEach((z) => {
+          camZones.forEach((z) => {
             if (z.type === 'ignore') return;
             const st = (zoneStateRef.current[z.id] ||= { motionStart: 0, countedThisPresence: false, lastTriggerAt: 0 });
 
@@ -539,66 +612,71 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
                   totalPixels++;
                   const idx = (y * W + x) * 4;
                   const diff = Math.abs(cur[idx] - prev[idx]) + Math.abs(cur[idx + 1] - prev[idx + 1]) + Math.abs(cur[idx + 2] - prev[idx + 2]);
-                  if (diff > 62) diffPixels++;
+                  if (diff > 60) diffPixels++;
                 }
               }
               const ratio = totalPixels > 0 ? diffPixels / totalPixels : 0;
 
               if (z.type === 'customer') {
+                const wasStanding = Boolean(nextStanding[z.id]);
                 if (ratio > 0.055) {
                   if (st.motionStart === 0) st.motionStart = now;
-                  const heldMs = now - st.motionStart;
-                  if (heldMs >= 1800) {
-                    nextStanding[z.id] = true;
+                  if (now - st.motionStart >= 1800) {
+                    if (!wasStanding) {
+                      nextStanding[z.id] = true;
+                      standingChanged = true;
+                    }
                     if (!st.countedThisPresence && now - st.lastTriggerAt > 4500) {
                       st.countedThisPresence = true;
                       st.lastTriggerAt = now;
                       setCustomerZoneCount((c) => c + 1);
-                      appendLog(z.name, 'ग्राहक आया', 'customer');
+                      appendLog(z.name, 'ग्राहक आया', 'customer', cameraLabel);
                     }
                   }
                 } else {
                   st.motionStart = 0;
                   st.countedThisPresence = false;
+                  if (wasStanding) {
+                    nextStanding[z.id] = false;
+                    standingChanged = true;
+                  }
                 }
               }
 
               if (z.type === 'galla') {
-                if (ratio > 0.07 && now - st.lastTriggerAt > 3500) {
+                if (ratio > 0.068 && now - st.lastTriggerAt > 3500) {
                   st.lastTriggerAt = now;
                   lastGallaEventRef.current = now;
                   setGallaMotionCount((c) => c + 1);
-                  appendLog(z.name, 'गल्ले पर हलचल', 'galla');
+                  appendLog(z.name, 'गल्ले पर हलचल', 'galla', cameraLabel);
 
-                  // Correlate with any pending spoken voice order within 25s
                   const pending = pendingVoiceRef.current.find((o) => !o.matched && now - o.createdAt <= 25000);
                   if (pending) {
                     pending.matched = true;
                     setMatchedVoiceCash((c) => c + pending.amount);
-                    appendLog('गल्ला + ऑडियो', `₹${pending.amount} (${pending.text}) गल्ला हलचल के साथ मेल खाया`, 'voice');
+                    appendLog('गल्ला + ऑडियो', `₹${pending.amount} (${pending.text}) गल्ला हलचल के साथ मेल खाया`, 'voice', cameraLabel);
                   }
                 }
               }
             } else if (z.type === 'gate') {
-              // Band around tripwire line
-              const lx0 = Math.max(0, Math.floor(Math.min(z.x1, z.x2) * W) - 10);
-              const ly0 = Math.max(0, Math.floor(Math.min(z.y1, z.y2) * H) - 10);
-              const lx1 = Math.min(W - 1, Math.floor(Math.max(z.x1, z.x2) * W) + 10);
-              const ly1 = Math.min(H - 1, Math.floor(Math.max(z.y1, z.y2) * H) + 10);
+              const lx0 = Math.max(0, Math.floor(Math.min(z.x1, z.x2) * W) - 8);
+              const ly0 = Math.max(0, Math.floor(Math.min(z.y1, z.y2) * H) - 8);
+              const lx1 = Math.min(W - 1, Math.floor(Math.max(z.x1, z.x2) * W) + 8);
+              const ly1 = Math.min(H - 1, Math.floor(Math.max(z.y1, z.y2) * H) + 8);
               let sumX = 0, sumY = 0, cnt = 0;
               for (let y = ly0; y <= ly1; y += 2) {
                 for (let x = lx0; x <= lx1; x += 2) {
                   if (isIgnored(x, y)) continue;
                   const idx = (y * W + x) * 4;
                   const diff = Math.abs(cur[idx] - prev[idx]) + Math.abs(cur[idx + 1] - prev[idx + 1]) + Math.abs(cur[idx + 2] - prev[idx + 2]);
-                  if (diff > 68) {
+                  if (diff > 65) {
                     sumX += x / W;
                     sumY += y / H;
                     cnt++;
                   }
                 }
               }
-              if (cnt > 18) {
+              if (cnt > 14) {
                 const cx = sumX / cnt;
                 const cy = sumY / cnt;
                 const cross = (z.x2 - z.x1) * (cy - z.y1) - (z.y2 - z.y1) * (cx - z.x1);
@@ -609,10 +687,10 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
                   if (side === outSign) {
                     setGateOutCount((c) => c + 1);
                     setTheftAlertCount((c) => c + 1);
-                    appendLog(z.name, 'गेट से बाहर क्रॉसिंग (चोरी/एग्ज़िट जाँच)', 'alert');
+                    appendLog(z.name, 'गेट से बाहर क्रॉसिंग (चोरी अलर्ट)', 'alert', cameraLabel);
                   } else {
                     setGateInCount((c) => c + 1);
-                    appendLog(z.name, 'गेट से अंदर प्रवेश', 'info');
+                    appendLog(z.name, 'गेट से अंदर प्रवेश', 'info', cameraLabel);
                   }
                 }
                 st.prevCentroidSide = side;
@@ -633,100 +711,111 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
                 }
               }
               if (total > 0) {
-                const est = Math.min(z.capacity || 10, Math.round((matched / total) * (z.capacity || 10)));
-                z.currentEstimate = est;
+                z.currentEstimate = Math.min(z.capacity || 10, Math.round((matched / total) * (z.capacity || 10)));
               }
             }
           });
 
-          setStandingZones(nextStanding);
+          if (standingChanged) setStandingZones(nextStanding);
         }
 
-        prevFrameRef.current = new Uint8ClampedArray(cur);
+        prevFramesRef.current[cameraKey] = new Uint8ClampedArray(cur);
       }
 
-      // 2. Render crisp vector zones & labels on the overlay canvas
+      // Draw crisp vector zones on this camera's overlay canvas
+      if (!overlay) return;
+      const octx = overlay.getContext('2d');
+      if (!octx) return;
       const rect = overlay.getBoundingClientRect();
-      if (overlay.width !== Math.round(rect.width) || overlay.height !== Math.round(rect.height)) {
-        overlay.width = Math.max(1, Math.round(rect.width));
-        overlay.height = Math.max(1, Math.round(rect.height));
+      const targetW = Math.max(1, Math.round(rect.width));
+      const targetH = Math.max(1, Math.round(rect.height));
+      if (overlay.width !== targetW || overlay.height !== targetH) {
+        overlay.width = targetW;
+        overlay.height = targetH;
       }
-      const CW = overlay.width;
-      const CH = overlay.height;
-      octx.clearRect(0, 0, CW, CH);
+      octx.clearRect(0, 0, targetW, targetH);
 
-      zonesRef.current.forEach((z) => {
+      camZones.forEach((z) => {
         const meta = ZONE_META[z.type];
         octx.strokeStyle = meta.color;
-        octx.lineWidth = 2.5;
-        octx.font = '700 12px Inter, "Noto Sans Devanagari", sans-serif';
+        octx.lineWidth = 2.2;
+        octx.font = '700 11px Inter, "Noto Sans Devanagari", sans-serif';
 
         if (z.type === 'gate') {
-          const ax = z.x1 * CW, ay = z.y1 * CH, bx = z.x2 * CW, by = z.y2 * CH;
+          const ax = z.x1 * targetW, ay = z.y1 * targetH, bx = z.x2 * targetW, by = z.y2 * targetH;
           octx.beginPath();
           octx.moveTo(ax, ay);
           octx.lineTo(bx, by);
           octx.stroke();
 
-          // Draw direction arrow
           const mx = (ax + bx) / 2, my = (ay + by) / 2;
           const dx = bx - ax, dy = by - ay;
           const len = Math.hypot(dx, dy) || 1;
           const sign = z.outSign || 1;
-          const nx = (-dy / len) * 20 * sign;
-          const ny = (dx / len) * 20 * sign;
           octx.strokeStyle = '#EF4444';
           octx.beginPath();
           octx.moveTo(mx, my);
-          octx.lineTo(mx + nx, my + ny);
+          octx.lineTo(mx + (-dy / len) * 18 * sign, my + (dx / len) * 18 * sign);
           octx.stroke();
 
           octx.fillStyle = meta.color;
-          octx.fillText(z.name, ax + 6, Math.max(16, ay - 6));
+          octx.fillText(z.name, ax + 5, Math.max(14, ay - 5));
         } else {
-          const rx = Math.min(z.x1, z.x2) * CW;
-          const ry = Math.min(z.y1, z.y2) * CH;
-          const rw = Math.abs(z.x2 - z.x1) * CW;
-          const rh = Math.abs(z.y2 - z.y1) * CH;
+          const rx = Math.min(z.x1, z.x2) * targetW;
+          const ry = Math.min(z.y1, z.y2) * targetH;
+          const rw = Math.abs(z.x2 - z.x1) * targetW;
+          const rh = Math.abs(z.y2 - z.y1) * targetH;
 
           octx.fillStyle = z.type === 'ignore' ? 'rgba(113,113,122,0.22)' : `${meta.color}18`;
           octx.fillRect(rx, ry, rw, rh);
           octx.strokeRect(rx, ry, rw, rh);
 
           let label = z.name;
-          if (z.type === 'customer' && standingZones[z.id]) label += ' • खड़ा';
+          if (z.type === 'customer' && standingRef.current[z.id]) label += ' • खड़ा';
           if (z.type === 'tank' && z.currentEstimate !== undefined) label += ` (${z.currentEstimate}/${z.capacity || 10})`;
 
           octx.fillStyle = meta.color;
-          octx.fillText(label, rx + 6, ry + 16);
+          octx.fillText(label, rx + 5, ry + 14);
         }
       });
 
-      // Active drag preview
-      if (dragRect) {
+      // Active drag preview on this camera
+      const dr = dragStateRef.current;
+      if (dr && dr.cameraKey === cameraKey) {
         const meta = ZONE_META[drawTool];
         octx.strokeStyle = meta.color;
-        octx.lineWidth = 2.5;
-        octx.setLineDash([6, 4]);
+        octx.lineWidth = 2.2;
+        octx.setLineDash([5, 4]);
         if (drawTool === 'gate') {
           octx.beginPath();
-          octx.moveTo(dragRect.x1 * CW, dragRect.y1 * CH);
-          octx.lineTo(dragRect.x2 * CW, dragRect.y2 * CH);
+          octx.moveTo(dr.x1 * targetW, dr.y1 * targetH);
+          octx.lineTo(dr.x2 * targetW, dr.y2 * targetH);
           octx.stroke();
         } else {
-          const rx = Math.min(dragRect.x1, dragRect.x2) * CW;
-          const ry = Math.min(dragRect.y1, dragRect.y2) * CH;
-          octx.strokeRect(rx, ry, Math.abs(dragRect.x2 - dragRect.x1) * CW, Math.abs(dragRect.y2 - dragRect.y1) * CH);
+          const rx = Math.min(dr.x1, dr.x2) * targetW;
+          const ry = Math.min(dr.y1, dr.y2) * targetH;
+          octx.strokeRect(rx, ry, Math.abs(dr.x2 - dr.x1) * targetW, Math.abs(dr.y2 - dr.y1) * targetH);
         }
         octx.setLineDash([]);
       }
     };
 
-    const interval = setInterval(tick, 180);
-    return () => clearInterval(interval);
-  }, [sourceMode, dragRect, drawTool, standingZones, appendLog]);
+    const interval = setInterval(() => {
+      if (sourceMode === 'DVR') {
+        cameras.forEach((cam) => {
+          const label = `Ch #${cam.channel || 1}`;
+          analyzeSource(cam._id, label, dvrImgRefs.current[cam._id] || null);
+        });
+      } else {
+        const key = sourceMode; // 'FILE' or 'WEBCAM'
+        analyzeSource(key, sourceMode === 'FILE' ? 'वीडियो' : 'वेबकैम', videoRef.current);
+      }
+    }, 220);
 
-  // Pointer handlers for drawing zones on canvas
+    return () => clearInterval(interval);
+  }, [sourceMode, cameras, drawTool, appendLog]);
+
+  // Pointer handlers for drawing directly on ANY camera in the grid or single view
   const getNormPos = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     return {
@@ -735,39 +824,41 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
     };
   };
 
-  const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+  const handleCanvasDown = (cameraKey: string, cameraLabel: string, e: React.MouseEvent<HTMLCanvasElement>) => {
     const p = getNormPos(e);
-    setDragRect({ x1: p.x, y1: p.y, x2: p.x, y2: p.y });
+    setDragState({ cameraKey, cameraLabel, x1: p.x, y1: p.y, x2: p.x, y2: p.y });
   };
 
-  const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!dragRect) return;
+  const handleCanvasMove = (cameraKey: string, e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!dragState || dragState.cameraKey !== cameraKey) return;
     const p = getNormPos(e);
-    setDragRect((prev) => (prev ? { ...prev, x2: p.x, y2: p.y } : null));
+    setDragState((prev) => (prev ? { ...prev, x2: p.x, y2: p.y } : null));
   };
 
-  const handleMouseUp = () => {
-    if (!dragRect) return;
-    const dist = Math.hypot(dragRect.x2 - dragRect.x1, dragRect.y2 - dragRect.y1);
+  const handleCanvasUp = () => {
+    if (!dragState) return;
+    const dist = Math.hypot(dragState.x2 - dragState.x1, dragState.y2 - dragState.y1);
     if (dist > 0.03) {
       const sameCount = zones.filter((z) => z.type === drawTool).length + 1;
       const finalName = zoneNameInput.trim() || `${ZONE_META[drawTool].defaultPrefix} ${sameCount}`;
       const newZone: DrawnZone = {
         id: `z-${Date.now()}`,
+        cameraKey: dragState.cameraKey,
+        cameraLabel: dragState.cameraLabel,
         type: drawTool,
         name: finalName,
-        x1: dragRect.x1,
-        y1: dragRect.y1,
-        x2: dragRect.x2,
-        y2: dragRect.y2,
+        x1: dragState.x1,
+        y1: dragState.y1,
+        x2: dragState.x2,
+        y2: dragState.y2,
         capacity: drawTool === 'tank' ? parseInt(tankCapacityInput, 10) || 10 : undefined,
         outSign: 1,
       };
       setZones((prev) => [...prev, newZone]);
       setZoneNameInput(`${ZONE_META[drawTool].defaultPrefix} ${sameCount + 1}`);
-      appendLog(finalName, `${ZONE_META[drawTool].label} जोड़ा गया`, 'info');
+      appendLog(finalName, `${ZONE_META[drawTool].label} जोड़ा गया`, 'info', dragState.cameraLabel);
     }
-    setDragRect(null);
+    setDragState(null);
   };
 
   const handleAddCash = (e: React.FormEvent) => {
@@ -796,23 +887,49 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
     if (videoRef.current) videoRef.current.muted = next;
   };
 
+  const visibleCameras = focusedCamId ? cameras.filter((c) => c._id === focusedCamId) : cameras;
+  const gridColsClass =
+    focusedCamId || visibleCameras.length <= 1
+      ? 'grid-cols-1'
+      : visibleCameras.length === 2
+      ? 'grid-cols-1 md:grid-cols-2'
+      : visibleCameras.length === 3
+      ? 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3'
+      : 'grid-cols-1 md:grid-cols-2'; // 4 or 5+ cameras look ultra crisp in 2-col grid (or 3-col on wide)
+
   const cashDiff = matchedVoiceCash - enteredCash;
 
   return (
     <div className="space-y-4">
       {/* Top Executive Command Header */}
-      <div className="bg-dark-900 border border-dark-800 rounded-2xl p-4 sm:p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+      <div className="bg-dark-900 border border-dark-800 rounded-2xl p-4 sm:p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
         <div>
           <h2 className="text-lg sm:text-xl font-bold text-white tracking-tight">
-            दुकान निगरानी — AI कैमरा कमांड सेंटर
+            दुकान निगरानी — मल्टी-कैमरा AI कमांड सेंटर
           </h2>
           <p className="text-xs text-dark-400 mt-0.5">
-            DVR की फुटेज (वीडियो फ़ाइल), लाइव DVR या वेबकैम चुनें, फिर स्क्रीन पर गेट लाइन और ज़ोन खींचें। सारा प्रोसेसिंग आपके ब्राउज़र में (₹0 कॉस्ट) होता है।
+            एक ही स्क्रीन पर अपने सभी DVR कैमरे (3, 4 या 5+) देखें, किसी भी कैमरे पर सीधे ज़ोन खींचें, और लाइव ऑडियो + गल्ला हिसाब ट्रैक करें।
           </p>
         </div>
 
         {/* Source Switcher & Quick Reports */}
         <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              handleStartLiveDvr();
+              setFocusedCamId(null);
+            }}
+            className={`px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 border transition-all ${
+              sourceMode === 'DVR'
+                ? 'bg-emerald-600 text-white border-emerald-600 keep-white-text'
+                : 'bg-dark-800 text-dark-200 border-dark-700 hover:border-emerald-500/40'
+            }`}
+          >
+            <LayoutGrid className="w-3.5 h-3.5" />
+            <span>सभी DVR कैमरे ({cameras.length})</span>
+          </button>
+
           <input ref={fileInputRef} type="file" accept="video/*" onChange={handleFileChange} className="hidden" />
           <button
             type="button"
@@ -824,20 +941,7 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
             }`}
           >
             <Upload className="w-3.5 h-3.5" />
-            <span>DVR वीडियो फ़ाइल</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={handleStartLiveDvr}
-            className={`px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 border transition-all ${
-              sourceMode === 'DVR'
-                ? 'bg-emerald-600 text-white border-emerald-600 keep-white-text'
-                : 'bg-dark-800 text-dark-200 border-dark-700 hover:border-emerald-500/40'
-            }`}
-          >
-            <Video className="w-3.5 h-3.5" />
-            <span>लाइव DVR</span>
+            <span>वीडियो फ़ाइल</span>
           </button>
 
           <button
@@ -888,53 +992,138 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* Main Unified 12-Column Grid (Everything on One Screen!) */}
+      {/* Main Unified 12-Column Grid */}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 items-start">
         {/* ============================================================== */}
-        {/* LEFT COLUMN (7 Cols): Video Canvas + Interactive Zone Toolbar  */}
+        {/* LEFT COLUMN (8 Cols): Multi-Camera Frame + Zone Draw Toolbar   */}
         {/* ============================================================== */}
-        <div className="xl:col-span-7 space-y-4">
-          {/* Interactive Video + Drawing Viewport */}
+        <div className="xl:col-span-8 space-y-4">
+          {/* Multi-Camera / Single-Source Unified Video Frame */}
           <div className="bg-dark-900 border border-dark-800 rounded-2xl p-3 space-y-3">
-            {/* DVR Channel selector if in DVR mode */}
-            {sourceMode === 'DVR' && cameras.length > 0 && (
-              <div className="flex items-center justify-between gap-2 text-xs">
-                <span className="text-dark-400 font-medium">DVR चैनल चुनें:</span>
-                <select
-                  value={selectedCamId}
-                  onChange={(e) => setSelectedCamId(e.target.value)}
-                  className="px-3 py-1.5 rounded-lg border border-dark-700 bg-dark-950 text-xs font-semibold"
-                >
-                  {cameras.map((c) => (
-                    <option key={c._id} value={c._id}>
-                      Ch #{c.channel || 1} — {c.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            <div className="relative w-full aspect-video bg-zinc-950 rounded-xl overflow-hidden border border-dark-800 select-none">
-              {sourceMode === 'DVR' ? (
-                dvrFrameUrl ? (
-                  <img ref={dvrImgRef} src={dvrFrameUrl} alt="Live DVR" className="w-full h-full object-contain" crossOrigin="anonymous" />
-                ) : (
-                  <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center space-y-2">
-                    <Video className="w-10 h-10 text-zinc-500" />
-                    <p className="text-xs text-zinc-300 font-medium max-w-md">
-                      {dvrError || 'लाइव DVR फीड से कनेक्ट हो रहा है...'}
-                    </p>
+            {sourceMode === 'DVR' ? (
+              <>
+                {/* Top Strip inside Multi-Camera Frame */}
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs px-1">
+                  <div className="flex items-center gap-2">
+                    <span className="inline-flex items-center gap-1.5 font-semibold text-white">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                      {focusedCamId
+                        ? `फ़ोकस व्यू: ${visibleCameras[0]?.name || 'कैमरा'}`
+                        : `एक साथ ${cameras.length} लाइव DVR कैमरे (हर कैमरे पर अलग AI एनालिसिस चालू)`}
+                    </span>
+                  </div>
+                  {focusedCamId && (
                     <button
                       type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      className="mt-2 px-4 py-2 rounded-lg bg-emerald-600 text-white keep-white-text text-xs font-semibold"
+                      onClick={() => setFocusedCamId(null)}
+                      className="px-2.5 py-1 rounded-lg bg-emerald-600 text-white keep-white-text font-semibold flex items-center gap-1"
                     >
-                      या DVR वीडियो फ़ाइल चुनें
+                      <Minimize2 className="w-3 h-3" /> सभी {cameras.length} कैमरे एक साथ देखें
                     </button>
+                  )}
+                </div>
+
+                {cameras.length === 0 ? (
+                  <div className="aspect-video bg-zinc-950 rounded-xl flex flex-col items-center justify-center p-6 text-center space-y-3 border border-dark-800">
+                    <Video className="w-10 h-10 text-zinc-500" />
+                    <p className="text-sm font-semibold text-zinc-200">अभी कोई DVR कैमरा जुड़ा नहीं है</p>
+                    <p className="text-xs text-zinc-400 max-w-md">
+                      ऊपर “DVR सेटिंग” से अपने 3, 4 या 5 DVR चैनल जोड़ें, या “वीडियो फ़ाइल” बटन से DVR रिकॉर्डिंग तुरंत टेस्ट करें।
+                    </p>
+                    <div className="flex items-center gap-2">
+                      {onOpenCameraSettings && (
+                        <button
+                          type="button"
+                          onClick={onOpenCameraSettings}
+                          className="px-4 py-2 rounded-lg bg-emerald-600 text-white keep-white-text text-xs font-semibold"
+                        >
+                          + DVR कैमरा जोड़ें
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="px-4 py-2 rounded-lg bg-zinc-800 text-zinc-100 text-xs font-semibold"
+                      >
+                        वीडियो फ़ाइल चुनें
+                      </button>
+                    </div>
                   </div>
-                )
-              ) : (
-                <>
+                ) : (
+                  <div className={`grid ${gridColsClass} gap-2.5`}>
+                    {visibleCameras.map((cam) => {
+                      const camLabel = `Ch #${cam.channel || 1}`;
+                      const frameSrc = dvrFrames[cam._id];
+                      const isOnline = dvrStatus[cam._id] === 'LIVE';
+                      const camZoneCount = zones.filter((z) => z.cameraKey === cam._id).length;
+
+                      return (
+                        <div
+                          key={cam._id}
+                          className="relative bg-zinc-950 rounded-xl overflow-hidden border border-dark-800 flex flex-col select-none"
+                        >
+                          {/* Mini Camera Header */}
+                          <div className="px-2.5 py-1.5 bg-zinc-900/95 border-b border-zinc-800 flex items-center justify-between gap-2 text-[11px]">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <span className={`w-2 h-2 rounded-full shrink-0 ${isOnline ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+                              <span className="font-semibold text-zinc-100 truncate">
+                                {camLabel} • {cam.name}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              {camZoneCount > 0 && (
+                                <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[10px] font-semibold">
+                                  {camZoneCount} ज़ोन
+                                </span>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => setFocusedCamId(focusedCamId === cam._id ? null : cam._id)}
+                                className="p-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300"
+                                title={focusedCamId === cam._id ? 'ग्रिड व्यू' : 'बड़ा करके ज़ोन खींचें'}
+                              >
+                                {focusedCamId === cam._id ? <Minimize2 className="w-3 h-3" /> : <Maximize2 className="w-3 h-3" />}
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Camera Video + Direct Drag-to-Draw Canvas */}
+                          <div className="relative w-full aspect-video bg-zinc-950">
+                            {frameSrc ? (
+                              <img
+                                ref={(el) => { dvrImgRefs.current[cam._id] = el; }}
+                                src={frameSrc}
+                                alt={cam.name}
+                                crossOrigin="anonymous"
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <div className="w-full h-full flex flex-col items-center justify-center p-3 text-center">
+                                <Camera className="w-6 h-6 text-zinc-600 mb-1" />
+                                <span className="text-[11px] text-zinc-400 font-medium">{camLabel} सिंक हो रहा है...</span>
+                                <span className="text-[10px] text-zinc-500 mt-0.5">ड्रैग करके ज़ोन अभी भी सेट कर सकते हैं</span>
+                              </div>
+                            )}
+
+                            <canvas
+                              ref={(el) => { overlayCanvasRefs.current[cam._id] = el; }}
+                              onMouseDown={(e) => handleCanvasDown(cam._id, camLabel, e)}
+                              onMouseMove={(e) => handleCanvasMove(cam._id, e)}
+                              onMouseUp={handleCanvasUp}
+                              onMouseLeave={handleCanvasUp}
+                              className="absolute inset-0 w-full h-full cursor-crosshair z-10"
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </>
+            ) : (
+              /* Single Video File or Webcam Viewport */
+              <>
+                <div className="relative w-full aspect-video bg-zinc-950 rounded-xl overflow-hidden border border-dark-800 select-none">
                   <video
                     ref={videoRef}
                     muted={isMuted}
@@ -945,72 +1134,79 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
                   {!videoUrl && sourceMode === 'FILE' && (
                     <div
                       onClick={() => fileInputRef.current?.click()}
-                      className="w-full h-full flex flex-col items-center justify-center p-6 text-center cursor-pointer hover:bg-zinc-900/60 transition-colors space-y-2.5"
+                      className="w-full h-full flex flex-col items-center justify-center p-6 text-center cursor-pointer hover:bg-zinc-900/60 transition-colors space-y-2"
                     >
-                      <div className="w-12 h-12 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
-                        <Upload className="w-6 h-6" />
-                      </div>
-                      <p className="text-sm font-semibold text-zinc-100">
-                        DVR रिकॉर्डिंग वीडियो फ़ाइल चुनने के लिए क्लिक करें
-                      </p>
-                      <p className="text-xs text-zinc-400 max-w-sm">
-                        या ऊपर से “लाइव DVR” या “वेबकैम” चालू करें — फिर स्क्रीन पर ड्रैग करके ग्राहक ज़ोन, गल्ला ज़ोन, गेट लाइन और अनदेखा ज़ोन बनाएँ।
-                      </p>
+                      <Upload className="w-8 h-8 text-emerald-400" />
+                      <p className="text-sm font-semibold text-zinc-100">DVR रिकॉर्डिंग वीडियो फ़ाइल चुनने के लिए क्लिक करें</p>
                     </div>
                   )}
-                </>
-              )}
-
-              {/* Interactive Vector Zone Overlay Canvas */}
-              <canvas
-                ref={overlayCanvasRef}
-                onMouseDown={handleMouseDown}
-                onMouseMove={handleMouseMove}
-                onMouseUp={handleMouseUp}
-                onMouseLeave={handleMouseUp}
-                className="absolute inset-0 w-full h-full cursor-crosshair z-10"
-              />
-            </div>
-
-            {/* Video Playback Bar when File is loaded */}
-            {sourceMode === 'FILE' && videoUrl && (
-              <div className="flex flex-wrap items-center justify-between gap-2 text-xs pt-1">
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={togglePlayPause}
-                    className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white keep-white-text font-semibold flex items-center gap-1.5"
-                  >
-                    {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
-                    <span>{isPlaying ? 'रोकें' : 'चलाएँ'}</span>
-                  </button>
-                  <span className="text-dark-400 truncate max-w-[200px]">{videoFileName}</span>
+                  <canvas
+                    ref={(el) => { overlayCanvasRefs.current[sourceMode] = el; }}
+                    onMouseDown={(e) => handleCanvasDown(sourceMode, sourceMode === 'FILE' ? 'वीडियो' : 'वेबकैम', e)}
+                    onMouseMove={(e) => handleCanvasMove(sourceMode, e)}
+                    onMouseUp={handleCanvasUp}
+                    onMouseLeave={handleCanvasUp}
+                    className="absolute inset-0 w-full h-full cursor-crosshair z-10"
+                  />
                 </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setGateInCount(0);
-                    setGateOutCount(0);
-                    setTheftAlertCount(0);
-                    setCustomerZoneCount(0);
-                    setGallaMotionCount(0);
-                    setMatchedVoiceCash(0);
-                    setSuspiciousVoiceCash(0);
-                    setEnteredCash(0);
-                    appendLog('सिस्टम', 'आज के काउंटर रीसेट किए गए', 'info');
-                  }}
-                  className="px-2.5 py-1.5 rounded-lg bg-dark-800 border border-dark-700 text-dark-300 hover:text-white flex items-center gap-1"
-                >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  <span>गिनती रीसेट</span>
-                </button>
-              </div>
+
+                {sourceMode === 'FILE' && videoUrl && (
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs pt-1">
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={togglePlayPause}
+                        className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white keep-white-text font-semibold flex items-center gap-1.5"
+                      >
+                        {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+                        <span>{isPlaying ? 'रोकें' : 'चलाएँ'}</span>
+                      </button>
+                      <span className="text-dark-400 truncate max-w-[240px]">{videoFileName}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setGateInCount(0);
+                        setGateOutCount(0);
+                        setTheftAlertCount(0);
+                        setCustomerZoneCount(0);
+                        setGallaMotionCount(0);
+                        setMatchedVoiceCash(0);
+                        setSuspiciousVoiceCash(0);
+                        setEnteredCash(0);
+                        appendLog('सिस्टम', 'आज के काउंटर रीसेट किए गए', 'info');
+                      }}
+                      className="px-2.5 py-1.5 rounded-lg bg-dark-800 border border-dark-700 text-dark-300 hover:text-white flex items-center gap-1"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" /> गिनती रीसेट
+                    </button>
+                  </div>
+                )}
+              </>
             )}
           </div>
 
           {/* Drawing Controls Card ("क्या खींचना है? (स्क्रीन पर ड्रैग करें)") */}
-          <div className="bg-dark-900 border border-dark-800 rounded-2xl p-4 space-y-3.5">
-            <h3 className="text-sm font-bold text-white">क्या खींचना है? (स्क्रीन पर ड्रैग करें)</h3>
+          <div className="bg-dark-900 border border-dark-800 rounded-2xl p-4 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-sm font-bold text-white">क्या खींचना है? (किसी भी कैमरे की स्क्रीन पर ड्रैग करें)</h3>
+              <button
+                type="button"
+                onClick={() => {
+                  setGateInCount(0);
+                  setGateOutCount(0);
+                  setTheftAlertCount(0);
+                  setCustomerZoneCount(0);
+                  setGallaMotionCount(0);
+                  setMatchedVoiceCash(0);
+                  setSuspiciousVoiceCash(0);
+                  setEnteredCash(0);
+                }}
+                className="text-[11px] text-dark-400 hover:text-white flex items-center gap-1"
+              >
+                <RotateCcw className="w-3 h-3" /> गिनती रीसेट
+              </button>
+            </div>
 
             <div className="flex flex-wrap gap-2">
               {(['gate', 'customer', 'tank', 'ignore', 'galla'] as ZoneType[]).map((t) => {
@@ -1056,23 +1252,20 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
               </label>
             </div>
 
-            <div className="text-[11px] leading-relaxed text-dark-400 space-y-1.5 pt-1 border-t border-dark-800">
+            <div className="text-[11px] leading-relaxed text-dark-400 space-y-1 pt-1 border-t border-dark-800">
               <p>
-                सड़क या ट्रैफ़िक वाली जगह पर <strong className="text-dark-200">“अनदेखा ज़ोन”</strong> खींचें (वहाँ की हलचल गिनती में नहीं आएगी) और ग्राहक ज़ोन सिर्फ़ दुकान के सामने की जगह पर रखें। ग्राहक तभी गिना जाता है जब हलचल लगभग 2 सेकंड टिके, और ज़ोन में कोई खड़ा हो तो स्क्रीन पर <strong className="text-dark-200">“• खड़ा”</strong> दिखता है।
-              </p>
-              <p>
-                टंकी ज़ोन खींचने के बाद, जब टंकियाँ पूरी भरी हों उस फ्रेम पर <strong className="text-dark-200">“रंग सेट करें”</strong> दबाएँ। फिर सिस्टम रंग मिलान से अंदाज़ा लगाएगा कि कितनी टंकियाँ अभी रखी हैं। गेट लाइन पर “बाहर की दिशा” बदलने का बटन है।
+                आप एक साथ 3, 4 या 5 कैमरों में से हर कैमरे पर अलग-अलग ज़ोन खींच सकते हैं (जैसे Ch #1 पर <strong className="text-dark-200">ग्राहक ज़ोन + अनदेखा ज़ोन</strong>, Ch #2 पर <strong className="text-dark-200">गल्ला ज़ोन</strong>, और Ch #3 पर <strong className="text-dark-200">टंकी / सामान ज़ोन</strong>)। हर कैमरा स्वतंत्र रूप से और बिना लैग के एनालाइज़ होता है।
               </p>
             </div>
           </div>
         </div>
 
         {/* ============================================================== */}
-        {/* RIGHT COLUMN (5 Cols): Stats + Cash + Voice + Zones + Logs     */}
+        {/* RIGHT COLUMN (4 Cols): Stats + Cash + Voice + Zones + Logs     */}
         {/* ============================================================== */}
-        <div className="xl:col-span-5 space-y-4">
-          {/* 1. आज का हिसाब (6 KPI Cards + Manual Cash Entry) */}
-          <div className="bg-dark-900 border border-dark-800 rounded-2xl p-4 space-y-3.5">
+        <div className="xl:col-span-4 space-y-4">
+          {/* 1. आज का हिसाब */}
+          <div className="bg-dark-900 border border-dark-800 rounded-2xl p-4 space-y-3">
             <h3 className="text-sm font-bold text-white">आज का हिसाब</h3>
 
             <div className="grid grid-cols-2 gap-2.5">
@@ -1111,7 +1304,7 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
                 placeholder="₹ रकम"
                 value={cashInput}
                 onChange={(e) => setCashInput(e.target.value)}
-                className="w-32 px-3 py-2 rounded-xl border border-dark-700 bg-dark-950 text-xs font-semibold"
+                className="w-28 px-3 py-2 rounded-xl border border-dark-700 bg-dark-950 text-xs font-semibold"
               />
               <button
                 type="submit"
@@ -1126,13 +1319,13 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
             </p>
           </div>
 
-          {/* 2. माइक व रेट लिस्ट (Voice + Galla Correlation) */}
+          {/* 2. माइक व रेट लिस्ट */}
           <div className="bg-dark-900 border border-dark-800 rounded-2xl p-4 space-y-3">
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 onClick={toggleMic}
-                className={`px-3.5 py-2 rounded-xl text-xs font-semibold border flex items-center gap-1.5 transition-all ${
+                className={`px-3 py-2 rounded-xl text-xs font-semibold border flex items-center gap-1.5 transition-all ${
                   micActive
                     ? 'bg-emerald-600 text-white border-emerald-600 keep-white-text'
                     : 'bg-dark-950 text-dark-200 border-dark-700 hover:border-emerald-500/40'
@@ -1145,12 +1338,18 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
               <button
                 type="button"
                 onClick={toggleVideoMute}
-                className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-dark-950 text-dark-200 border border-dark-700 hover:border-dark-500 flex items-center gap-1.5"
+                className="px-3 py-2 rounded-xl text-xs font-semibold bg-dark-950 text-dark-200 border border-dark-700 hover:border-dark-500 flex items-center gap-1.5"
               >
                 {isMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
-                <span>{isMuted ? 'फुटेज की आवाज़ चालू करें' : 'फुटेज की आवाज़ बंद करें'}</span>
+                <span>{isMuted ? 'फुटेज आवाज़ चालू' : 'फुटेज आवाज़ बंद'}</span>
               </button>
             </div>
+
+            {interimText && (
+              <div className="px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/25 text-xs text-amber-400">
+                🎙️ सुन रहा है: {interimText}...
+              </div>
+            )}
 
             {lastHeardText && (
               <div className="px-3 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-xs text-emerald-400 font-medium">
@@ -1186,13 +1385,9 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
             <div className="text-xs font-semibold text-dark-300">
               अनुमानित कैश − दर्ज कैश = <span className={cashDiff > 0 ? 'text-amber-400 font-mono' : 'text-emerald-400 font-mono'}>₹{cashDiff}</span>
             </div>
-
-            <p className="text-[11px] text-dark-400 leading-relaxed">
-              ग्राहक की बात सुनकर सिस्टम सामान और संख्या पकड़ता है (जैसे “दो दूध” या “20 का दूध”), रेट से रकम निकालता है, फिर 25 सेकंड के भीतर गल्ले पर हलचल देखता है। यह अनुमान है, सटीक गिनती नहीं। माइक सिर्फ़ आसपास की आवाज़ सुनता है; फुटेज की आवाज़ के लिए उसे स्पीकर से चलाकर माइक के पास रखना होगा। Chrome में ही चलेगा।
-            </p>
           </div>
 
-          {/* 3. ज़ोन और लाइनें (Drawn Zones Management) */}
+          {/* 3. ज़ोन और लाइनें */}
           <div className="bg-dark-900 border border-dark-800 rounded-2xl p-4 space-y-2.5">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold text-white">ज़ोन और लाइनें ({zones.length})</h3>
@@ -1209,26 +1404,31 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
 
             {zones.length === 0 ? (
               <p className="text-xs text-dark-400 py-2">
-                अभी कोई ज़ोन नहीं बना है। बाईं ओर वीडियो स्क्रीन पर माउस से ड्रैग करके ज़ोन खींचें।
+                अभी कोई ज़ोन नहीं बना है। बाईं ओर किसी भी कैमरे पर माउस से ड्रैग करके ज़ोन खींचें।
               </p>
             ) : (
-              <div className="divide-y divide-dark-800">
+              <div className="divide-y divide-dark-800 max-h-48 overflow-y-auto pr-1">
                 {zones.map((z) => (
                   <div key={z.id} className="py-2 flex items-center justify-between gap-2 text-xs">
                     <div className="flex items-center gap-2 min-w-0">
                       <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: ZONE_META[z.type].color }} />
-                      <span className="font-semibold text-dark-100 truncate">
-                        {ZONE_META[z.type].short}: {z.name}
-                      </span>
+                      <div className="min-w-0">
+                        <span className="font-semibold text-dark-100 block truncate">
+                          {ZONE_META[z.type].short}: {z.name}
+                        </span>
+                        {z.cameraLabel && (
+                          <span className="text-[10px] text-dark-400">{z.cameraLabel}</span>
+                        )}
+                      </div>
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0">
                       {z.type === 'tank' && (
                         <button
                           type="button"
                           onClick={() => captureTankBaseline(z.id)}
-                          className="px-2 py-1 rounded-lg bg-dark-950 border border-dark-700 text-[11px] text-teal-400 font-semibold flex items-center gap-1"
+                          className="px-2 py-1 rounded-lg bg-dark-950 border border-dark-700 text-[10px] text-teal-400 font-semibold flex items-center gap-1"
                         >
-                          <Palette className="w-3 h-3" /> रंग सेट करें
+                          <Palette className="w-3 h-3" /> रंग सेट
                         </button>
                       )}
                       {z.type === 'gate' && (
@@ -1239,7 +1439,7 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
                               prev.map((item) => (item.id === z.id ? { ...item, outSign: item.outSign === 1 ? -1 : 1 } : item))
                             )
                           }
-                          className="px-2 py-1 rounded-lg bg-dark-950 border border-dark-700 text-[11px] text-dark-300 font-semibold flex items-center gap-1"
+                          className="px-2 py-1 rounded-lg bg-dark-950 border border-dark-700 text-[10px] text-dark-300 font-semibold flex items-center gap-1"
                         >
                           <ArrowLeftRight className="w-3 h-3" /> दिशा
                         </button>
@@ -1247,7 +1447,7 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
                       <button
                         type="button"
                         onClick={() => setZones((prev) => prev.filter((item) => item.id !== z.id))}
-                        className="px-2.5 py-1 rounded-lg bg-dark-950 border border-dark-700 text-dark-300 hover:text-rose-400 hover:border-rose-500/40 font-semibold"
+                        className="px-2 py-1 rounded-lg bg-dark-950 border border-dark-700 text-dark-300 hover:text-rose-400 hover:border-rose-500/40 font-semibold"
                       >
                         हटाएँ
                       </button>
@@ -1258,7 +1458,7 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
             )}
           </div>
 
-          {/* 4. गतिविधि लॉग (Live Chronological Activity Log) */}
+          {/* 4. गतिविधि लॉग */}
           <div className="bg-dark-900 border border-dark-800 rounded-2xl p-4 space-y-2.5">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold text-white">गतिविधि लॉग</h3>
@@ -1276,7 +1476,7 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
             <div className="max-h-56 overflow-y-auto divide-y divide-dark-800 pr-1">
               {logs.length === 0 ? (
                 <p className="text-xs text-dark-400 py-3">
-                  कोई गतिविधि अभी दर्ज नहीं हुई है। वीडियो चलाएँ या लाइव DVR चालू करें।
+                  कोई गतिविधि अभी दर्ज नहीं हुई है। कैमरे चालू हैं — हलचल होते ही यहाँ लॉग दिखेगा।
                 </p>
               ) : (
                 logs.map((l) => (
