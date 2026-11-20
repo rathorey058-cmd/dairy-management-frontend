@@ -11,6 +11,8 @@ import { UltraCrispIncidentCard, type UltraCrispIncidentItem } from './UltraCris
 import { ShopAiReportDetailModal } from './ShopAiReportDetailModal';
 import type { ShopAiReportItem } from './ShopAiReportDetailModal';
 import { mobileYolo, type DetectedObject } from '../../services/mobileYoloService';
+import { UnifiedStore360View } from './UnifiedStore360View';
+import { Compass } from 'lucide-react';
 
 interface CameraDevice {
   _id: string;
@@ -41,7 +43,7 @@ export const ShopAiLiveMonitor: React.FC<Props> = ({
   onOpenVisualPairing
 }) => {
   const { t, language } = useAuth();
-  const [viewMode, setViewMode] = useState<'GRID' | 'SINGLE'>('GRID');
+  const [viewMode, setViewMode] = useState<'UNIFIED_360' | 'GRID' | 'SINGLE'>('UNIFIED_360');
   const [selectedCameraId, setSelectedCameraId] = useState<string>(cameras[0]?._id || '');
   const [cameraSource, setCameraSource] = useState<'HIKVISION' | 'WEBCAM'>('HIKVISION');
   const [isLiveStreaming, setIsLiveStreaming] = useState(false);
@@ -107,8 +109,9 @@ export const ShopAiLiveMonitor: React.FC<Props> = ({
   // (restarting on each frame kept resetting the 3s timer so detection never ran).
   const liveSnapshotRef = useRef<string | null>(null);
   useEffect(() => {
-    liveSnapshotRef.current = liveSnapshotUrl;
-  }, [liveSnapshotUrl]);
+    const firstCamId = cameras[0]?._id;
+    liveSnapshotRef.current = liveSnapshotUrl || (firstCamId ? gridSnapshots[firstCamId] : null) || null;
+  }, [liveSnapshotUrl, gridSnapshots, cameras]);
 
   useEffect(() => {
     mobileYolo.initModel().then((ready) => {
@@ -268,7 +271,7 @@ export const ShopAiLiveMonitor: React.FC<Props> = ({
 
   // Loop for Multi-Camera Grid
   useEffect(() => {
-    if (viewMode === 'GRID' && cameraSource === 'HIKVISION' && cameras.length > 0) {
+    if ((viewMode === 'GRID' || viewMode === 'UNIFIED_360') && cameraSource === 'HIKVISION' && cameras.length > 0) {
       fetchGridSnapshots();
       gridIntervalRef.current = setInterval(fetchGridSnapshots, 3500);
     }
@@ -409,6 +412,14 @@ export const ShopAiLiveMonitor: React.FC<Props> = ({
             <div className="flex items-center gap-1 bg-dark-950 p-1 rounded-xl border border-dark-800">
               <button
                 type="button"
+                onClick={() => setViewMode('UNIFIED_360')}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${viewMode === 'UNIFIED_360' ? 'bg-gradient-to-r from-emerald-600 to-indigo-600 text-white shadow-sm' : 'text-dark-400 hover:text-white'}`}
+              >
+                <Compass className="w-3.5 h-3.5" />
+                <span>🌐 360° शॉप व्यू</span>
+              </button>
+              <button
+                type="button"
                 onClick={() => setViewMode('GRID')}
                 className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${viewMode === 'GRID' ? 'bg-indigo-600 text-white shadow-sm' : 'text-dark-400 hover:text-white'
                   }`}
@@ -481,6 +492,22 @@ export const ShopAiLiveMonitor: React.FC<Props> = ({
         </div>
       </div>
 
+      {/* 5-Camera Unified 360° Store Panorama & Live Shop Floor Radar */}
+      {cameraSource === 'HIKVISION' && viewMode === 'UNIFIED_360' && cameras.length > 0 && (
+        <UnifiedStore360View
+          cameras={cameras}
+          gridSnapshots={gridSnapshots}
+          pairingBlocks={pairingBlocks}
+          onSelectSingleCamera={(camId) => {
+            setSelectedCameraId(camId);
+            setViewMode('SINGLE');
+          }}
+          onOpenVisualPairingForChannel={() => {
+            if (onOpenVisualPairing) onOpenVisualPairing();
+          }}
+        />
+      )}
+
       {/* Main Viewport + Ultra-Crisp Incidents Feed */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
 
@@ -522,7 +549,7 @@ export const ShopAiLiveMonitor: React.FC<Props> = ({
             {/* Viewport Frame */}
             <div className="relative rounded-3xl overflow-hidden bg-black border border-dark-800 aspect-video flex items-center justify-center shadow-inner">
               {cameraSource === 'HIKVISION' ? (
-                viewMode === 'GRID' && cameras.length > 1 ? (
+                (viewMode === 'GRID' || viewMode === 'UNIFIED_360') && cameras.length > 1 ? (
                   <div className="w-full h-full grid grid-cols-2 md:grid-cols-3 gap-1.5 p-1.5 bg-black">
                     {cameras.map((cam) => (
                       <div

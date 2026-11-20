@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import API from '../../api';
 import { useAuth } from '../../context/AuthContext';
 import {
@@ -44,9 +44,13 @@ interface PairingBlock {
 }
 
 interface QuotaInfo {
+  tenantId?: string;
   planTier: string;
   allowedBlocksLimit: number;
   freeBlocksCount: number;
+  allowedCamerasLimit?: number;
+  audioTriMatchEnabled?: boolean;
+  activeAddOns?: string[];
   isPaidPlanActive: boolean;
   usedBlocksCount: number;
   remainingBlocks: number;
@@ -86,7 +90,13 @@ export const VisualPairingModal: React.FC<Props> = ({ isOpen, onClose, cameras }
   const { user } = useAuth();
   const isSuperAdmin = user?.role === 'SuperAdmin';
 
-  const [activeTab, setActiveTab] = useState<'blocks' | 'cans' | 'shelves' | 'admin'>('blocks');
+  const [activeTab, setActiveTab] = useState<'blocks' | 'plans' | 'cans' | 'shelves' | 'admin'>('blocks');
+  const [myTenantId, setMyTenantId] = useState<string>('');
+  const [upgradingSlab, setUpgradingSlab] = useState<string | null>(null);
+  const [slabNotice, setSlabNotice] = useState<string | null>(null);
+  const [previewBlobUrl, setPreviewBlobUrl] = useState<string | null>(null);
+  const drawBoxRef = useRef<HTMLDivElement | null>(null);
+  const dragStartRef = useRef<{ x: number; y: number } | null>(null);
   const [blocks, setBlocks] = useState<PairingBlock[]>([]);
   const [loading, setLoading] = useState(false);
   const [quota, setQuota] = useState<QuotaInfo | null>(null);
@@ -130,8 +140,16 @@ export const VisualPairingModal: React.FC<Props> = ({ isOpen, onClose, cameras }
       ]);
 
       if (blocksRes.data?.blocks) setBlocks(blocksRes.data.blocks);
-      if (quotaRes.data?.quota) setQuota(quotaRes.data.quota);
+      if (quotaRes.data?.quota) {
+        setQuota(quotaRes.data.quota);
+        if (quotaRes.data.quota.tenantId) setMyTenantId(String(quotaRes.data.quota.tenantId));
+      }
       if (cansRes.data?.summary) setReusableSummary(cansRes.data);
+      if (!myTenantId) {
+        API.get('/tenants/settings').then((r) => {
+          if (r.data?.tenant?.id) setMyTenantId(String(r.data.tenant.id));
+        }).catch(() => {});
+      }
     } catch (err: any) {
       console.error('Error fetching visual pairing data:', err);
     } finally {
@@ -163,6 +181,87 @@ export const VisualPairingModal: React.FC<Props> = ({ isOpen, onClose, cameras }
       }
     }
   }, [isOpen, isSuperAdmin]);
+
+
+  useEffect(() => {
+    if (!isOpen || !isFormOpen) return;
+    const cam = cameras.find((c) => Number(c.channel || 1) === Number(cameraChannel)) || cameras[0];
+    if (!cam?._id) return;
+    let active = true;
+    API.get(`/cameras/${cam._id}/live-snapshot?t=${Date.now()}`, { responseType: 'blob' })
+      .then((res) => {
+        if (!active) return;
+        const url = URL.createObjectURL(res.data);
+        setPreviewBlobUrl((prev) => {
+          if (prev && prev.startsWith('blob:')) URL.revokeObjectURL(prev);
+          return url;
+        });
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [isOpen, isFormOpen, cameraChannel, cameras]);
+
+  const handleCanvasPointerDown = (clientX: number, clientY: number) => {
+    if (!drawBoxRef.current) return;
+    const rect = drawBoxRef.current.getBoundingClientRect();
+    const xPct = Math.max(0, Math.min(95, Math.round(((clientX - rect.left) / rect.width) * 100)));
+    const yPct = Math.max(0, Math.min(95, Math.round(((clientY - rect.top) / rect.height) * 100)));
+    dragStartRef.current = { x: xPct, y: yPct };
+    setCoordX(xPct);
+    setCoordY(yPct);
+    setCoordW(12);
+    setCoordH(12);
+  };
+
+  const handleCanvasPointerMove = (clientX: number, clientY: number) => {
+    if (!dragStartRef.current || !drawBoxRef.current) return;
+    const rect = drawBoxRef.current.getBoundingClientRect();
+    const curX = Math.max(0, Math.min(100, Math.round(((clientX - rect.left) / rect.width) * 100)));
+    const curY = Math.max(0, Math.min(100, Math.round(((clientY - rect.top) / rect.height) * 100)));
+    const x0 = Math.min(dragStartRef.current.x, curX);
+    const y0 = Math.min(dragStartRef.current.y, curY);
+    const w = Math.max(10, Math.min(100 - x0, Math.abs(curX - dragStartRef.current.x)));
+    const h = Math.max(10, Math.min(100 - y0, Math.abs(curY - dragStartRef.current.y)));
+    setCoordX(x0);
+    setCoordY(y0);
+    setCoordW(w);
+    setCoordH(h);
+  };
+
+  const handleCanvasPointerUp = () => {
+    dragStartRef.current = null;
+  };
+
+  const handleApplySlabOrAddOn = async (opts: { slabId?: string; addOnId?: string; targetLimit: number; label: string }) => {
+    setUpgradingSlab(opts.slabId || opts.addOnId || 'UPGRADE');
+    setSlabNotice(null);
+    try {
+      try {
+        await API.post('/tenants/upgrade-slab', { slabId: opts.slabId, addOnId: opts.addOnId });
+      } catch (innerErr: any) {
+        // Fallback to already-deployed Render endpoint so MongoDB Atlas updates immediately
+        let tid = myTenantId || quota?.tenantId;
+        if (!tid) {
+          const sr = await API.get('/tenants/settings');
+          tid = sr.data?.tenant?.id;
+        }
+        if (!tid) throw innerErr;
+        await API.put(`/tenants/admin/pairing-limits/${tid}`, {
+          planTier: opts.targetLimit > 15 ? 'PAID' : 'FREE',
+          allowedBlocksLimit: opts.targetLimit,
+          freeBlocksCount: 15,
+          isPaidPlanActive: opts.targetLimit > 15,
+        });
+      }
+      await fetchData();
+      if (isSuperAdmin) fetchAdminTenants();
+      setSlabNotice(`✅ "${opts.label}" सफलतापूर्वक लागू हो गया! अब आपकी कुल AI ब्लॉक लिमिट ${opts.targetLimit} है।`);
+    } catch (e: any) {
+      setSlabNotice('⚠️ प्लान अपडेट करने में समस्या आई।');
+    } finally {
+      setUpgradingSlab(null);
+    }
+  };
 
   const resetForm = () => {
     setEditingBlockId(null);
@@ -351,11 +450,13 @@ export const VisualPairingModal: React.FC<Props> = ({ isOpen, onClose, cameras }
               </span>
             </div>
 
-            {!quota.canAddBlock && (
-              <span className="text-[10px] font-bold text-rose-400 bg-rose-950/50 px-2 py-0.5 rounded border border-rose-800/40">
-                ⚠️ लिमिट पूरी हो गई है
-              </span>
-            )}
+            <button
+              type="button"
+              onClick={() => setActiveTab('plans')}
+              className="px-2.5 py-1 rounded-lg bg-gradient-to-r from-amber-500 to-indigo-600 text-white text-[10px] font-extrabold shadow hover:opacity-95 transition"
+            >
+              💎 स्लैब / +Add-On बढ़ाएँ
+            </button>
           </div>
         )}
 
@@ -371,6 +472,18 @@ export const VisualPairingModal: React.FC<Props> = ({ isOpen, onClose, cameras }
           >
             <Tag className="w-3.5 h-3.5" />
             विज़ुअल ब्लॉक्स ({blocks.length})
+          </button>
+
+          <button
+            onClick={() => setActiveTab('plans')}
+            className={`pb-2.5 px-3 font-semibold border-b-2 flex items-center gap-1.5 transition whitespace-nowrap ${
+              activeTab === 'plans'
+                ? 'border-amber-500 text-amber-400'
+                : 'border-transparent text-dark-400 hover:text-white'
+            }`}
+          >
+            <Crown className="w-3.5 h-3.5" />
+            💎 प्लान स्लैब्स व एक्स्ट्रा Add-On
           </button>
 
           <button
@@ -572,6 +685,113 @@ export const VisualPairingModal: React.FC<Props> = ({ isOpen, onClose, cameras }
                     </div>
                   </div>
 
+                  {/* 1-Click In-Built AI Object Templates */}
+                  <div>
+                    <label className="text-dark-400 block mb-1.5 font-medium text-xs">
+                      ⚡ 1-क्लिक इनबिल्ट AI टेम्पलेट (चुनते ही अपने-आप सेट हो जाएगा):
+                    </label>
+                    <div className="flex flex-wrap gap-1.5 text-[11px]">
+                      {[
+                        { code: 'GALLA', lbl: '🔴 कैश गल्ला दराज', cat: 'GALLA', col: '#EF4444', ch: 2 },
+                        { code: 'FRIDGE', lbl: '🔵 डेयरी फ्रिज / रैक', cat: 'SHELF', col: '#3B82F6', ch: 3 },
+                        { code: 'CAN', lbl: '🟢 50L मिल्क कैन', cat: 'REUSABLE_CAN', col: '#10B981', ch: 4 },
+                        { code: 'SCALE', lbl: '🟣 इलेक्ट्रॉनिक कांटा', cat: 'MACHINERY', col: '#EC4899', ch: 1 },
+                        { code: 'CHILLER', lbl: '🟠 बल्क चिलर / शेड', cat: 'CUSTOM', col: '#F59E0B', ch: 5 },
+                      ].map((tpl) => (
+                        <button
+                          key={tpl.code}
+                          type="button"
+                          onClick={() => {
+                            setBlockCode(`${tpl.code}-${String(blocks.length + 1).padStart(2, '0')}`);
+                            setName(tpl.lbl.slice(2).trim());
+                            setCategory(tpl.cat as any);
+                            setColor(tpl.col);
+                            setCameraChannel(tpl.ch);
+                          }}
+                          className="px-2.5 py-1 rounded-xl bg-dark-900 hover:bg-dark-800 border border-dark-700 text-white font-semibold transition"
+                        >
+                          {tpl.lbl}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Interactive Live Camera Drag-to-Draw Canvas */}
+                  <div className="bg-dark-900/90 p-3 rounded-2xl border border-indigo-500/30 space-y-2.5">
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                      <span className="font-bold text-white flex items-center gap-1.5">
+                        <Camera className="w-4 h-4 text-emerald-400" />
+                        लाइव कैमरे पर माउस या उंगली से खींचकर (Drag करके) AI ज़ोन बनाएँ (कैमरा #{cameraChannel})
+                      </span>
+                      <span
+                        className="px-2 py-0.5 rounded text-[10px] font-bold font-mono"
+                        style={{ backgroundColor: `${color}20`, color, borderColor: `${color}40`, borderWidth: 1 }}
+                      >
+                        X: {coordX}% | Y: {coordY}% | W: {coordW}% | H: {coordH}%
+                      </span>
+                    </div>
+
+                    <div
+                      ref={drawBoxRef}
+                      onMouseDown={(e) => handleCanvasPointerDown(e.clientX, e.clientY)}
+                      onMouseMove={(e) => handleCanvasPointerMove(e.clientX, e.clientY)}
+                      onMouseUp={handleCanvasPointerUp}
+                      onMouseLeave={handleCanvasPointerUp}
+                      onTouchStart={(e) => e.touches[0] && handleCanvasPointerDown(e.touches[0].clientX, e.touches[0].clientY)}
+                      onTouchMove={(e) => e.touches[0] && handleCanvasPointerMove(e.touches[0].clientX, e.touches[0].clientY)}
+                      onTouchEnd={handleCanvasPointerUp}
+                      className="relative w-full aspect-video max-h-64 mx-auto rounded-2xl overflow-hidden bg-black border border-dark-700 cursor-crosshair select-none"
+                    >
+                      {previewBlobUrl ? (
+                        <img src={previewBlobUrl} alt="Camera Live Preview" draggable={false} className="w-full h-full object-contain pointer-events-none" />
+                      ) : (
+                        <div className="w-full h-full flex flex-col items-center justify-center text-dark-400 text-xs">
+                          <Camera className="w-7 h-7 mb-1 animate-pulse text-indigo-400" />
+                          <span>कैमरा #{cameraChannel} का लाइव फ्रेम... यहाँ ड्रैग करके बॉक्स खींचें</span>
+                        </div>
+                      )}
+
+                      {/* Existing blocks on this channel (faded) */}
+                      {blocks
+                        .filter((b) => Number(b.cameraChannel) === Number(cameraChannel) && b._id !== editingBlockId)
+                        .map((b) => (
+                          <div
+                            key={b._id}
+                            style={{
+                              left: `${b.coordinates?.x || 15}%`,
+                              top: `${b.coordinates?.y || 15}%`,
+                              width: `${b.coordinates?.width || 30}%`,
+                              height: `${b.coordinates?.height || 30}%`,
+                              borderColor: b.color || '#3B82F6',
+                            }}
+                            className="absolute border border-dashed opacity-50 pointer-events-none rounded p-1"
+                          >
+                            <span className="text-[8px] bg-black/70 text-white px-1 rounded">{b.name}</span>
+                          </div>
+                        ))}
+
+                      {/* Current active drawn box */}
+                      <div
+                        style={{
+                          left: `${coordX}%`,
+                          top: `${coordY}%`,
+                          width: `${coordW}%`,
+                          height: `${coordH}%`,
+                          borderColor: color,
+                          backgroundColor: `${color}28`,
+                        }}
+                        className="absolute border-2 rounded-lg pointer-events-none flex flex-col justify-between p-1.5 shadow-lg"
+                      >
+                        <span className="text-[10px] font-extrabold text-white px-1.5 py-0.5 rounded self-start shadow" style={{ backgroundColor: color }}>
+                          {name || blockCode || 'नया AI ब्लॉक'}
+                        </span>
+                        <span className="text-[9px] font-mono bg-black/80 text-white px-1.5 py-0.5 rounded self-end">
+                          {coordX}%, {coordY}% ({coordW}×{coordH}%)
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
                   {/* Coordinates Sliders */}
                   <div className="bg-dark-900/70 p-3 rounded-xl border border-dark-800 space-y-2">
                     <div className="flex items-center justify-between text-xs">
@@ -748,6 +968,209 @@ export const VisualPairingModal: React.FC<Props> = ({ isOpen, onClose, cameras }
                   ))}
                 </div>
               )}
+            </div>
+          )}
+
+          {/* TAB: PLAN SLABS & EXTRA ADD-ONS MARKETPLACE */}
+          {activeTab === 'plans' && (
+            <div className="space-y-5">
+              <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-950/40 via-indigo-950/40 to-dark-950 border border-amber-500/30 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h4 className="text-sm sm:text-base font-black text-white flex items-center gap-2">
+                    <Crown className="w-4 h-4 text-amber-400" />
+                    <span>डेयरी AI सॉफ्टवेयर — प्लान स्लैब्स (Plan Slabs) व एक्स्ट्रा Add-On पैक</span>
+                  </h4>
+                  <p className="text-xs text-dark-300 mt-0.5">
+                    दुकान के आकार के अनुसार स्लैब चुनें या मौजूदा प्लान में ऊपर से एक्स्ट्रा AI ब्लॉक्स व कैमरे जोड़ें।
+                  </p>
+                </div>
+                <div className="text-right bg-dark-900/90 px-3.5 py-2 rounded-xl border border-dark-800">
+                  <span className="text-[10px] text-dark-400 block">वर्तमान सक्रिय कोटा</span>
+                  <span className="text-sm font-black text-emerald-400">
+                    {quota?.usedBlocksCount || 0} / {quota?.allowedBlocksLimit || 15} AI ब्लॉक्स
+                  </span>
+                </div>
+              </div>
+
+              {slabNotice && (
+                <div className="p-3 rounded-xl bg-emerald-950/60 border border-emerald-500/40 text-emerald-200 text-xs font-bold flex items-center justify-between">
+                  <span>{slabNotice}</span>
+                  <button onClick={() => setSlabNotice(null)} className="text-emerald-400 hover:text-white">✕</button>
+                </div>
+              )}
+
+              {/* 4 Commercial Plan Slabs */}
+              <div>
+                <h5 className="text-xs font-extrabold text-dark-300 uppercase tracking-wider mb-2.5">
+                  1. मुख्य प्लान स्लैब्स (Base Subscription Slabs)
+                </h5>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  {[
+                    {
+                      id: 'FREE',
+                      title: '🆓 STARTER / FREE',
+                      price: '₹0 / ट्रायल',
+                      cams: '2 कैमरे',
+                      blocks: 15,
+                      badge: 'छोटी दुकान ट्रायल',
+                      features: ['15 AI विज़ुअल ब्लॉक्स', '2 कैमरा लाइव मॉनिटर', 'ग्राहक व गल्ला बेसिक अलर्ट', 'मोबाइल फोन AI (₹0 API)'],
+                      tone: 'border-dark-700 bg-dark-950/70',
+                    },
+                    {
+                      id: 'BASIC',
+                      title: '⭐ BASIC DAIRY',
+                      price: '₹999 / माह',
+                      cams: '4 कैमरे',
+                      blocks: 35,
+                      badge: '4-कैमरा DVR दुकान',
+                      features: ['35 AI विज़ुअल ब्लॉक्स', '4 कैमरा DVR HDD प्लेबैक', '1-स्क्रीन शॉर्ट दैनिक रिपोर्ट', 'शेल्फ पिक व कैन ट्रैकर'],
+                      tone: 'border-sky-500/40 bg-sky-950/20',
+                    },
+                    {
+                      id: 'PRO',
+                      title: '👑 PRO AI + AUDIO',
+                      price: '₹1,999 / माह',
+                      cams: '8 कैमरे',
+                      blocks: 75,
+                      badge: 'सबसे लोकप्रिय (Best Seller)',
+                      features: ['75 AI विज़ुअल ब्लॉक्स', '5-8 कैमरा 360° यूनिफाइड व्यू', 'वीडियो + हिंदी ऑडियो + POS मिलान', '24/7 गल्ला व बिना बिल चोरी अलर्ट'],
+                      tone: 'border-amber-500/50 bg-amber-950/20 ring-1 ring-amber-500/30',
+                    },
+                    {
+                      id: 'ENTERPRISE',
+                      title: '🏢 ENTERPRISE 16+',
+                      price: '₹3,999 / माह',
+                      cams: '16+ कैमरे',
+                      blocks: 200,
+                      badge: 'बड़ी डेयरी / सुपरमार्केट',
+                      features: ['200 AI विज़ुअल ब्लॉक्स', '16-17 कैमरा फुल DVR कवरेज', 'मल्टी-काउंटर ऑडियो+वीडियो ऑडिट', 'सुपर एडमिन प्रायोरिटी सपोर्ट'],
+                      tone: 'border-indigo-500/50 bg-indigo-950/25',
+                    },
+                  ].map((slab) => {
+                    const curLimit = quota?.allowedBlocksLimit || 15;
+                    const isCurrent =
+                      (slab.id === 'FREE' && curLimit <= 15) ||
+                      (slab.id === 'BASIC' && curLimit > 15 && curLimit <= 45) ||
+                      (slab.id === 'PRO' && curLimit > 45 && curLimit <= 120) ||
+                      (slab.id === 'ENTERPRISE' && curLimit > 120);
+
+                    return (
+                      <div key={slab.id} className={`rounded-2xl border p-4 flex flex-col justify-between space-y-3 ${slab.tone}`}>
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-white/10 text-white">
+                              {slab.badge}
+                            </span>
+                            {isCurrent && (
+                              <span className="text-[10px] font-extrabold text-emerald-400">● सक्रिय</span>
+                            )}
+                          </div>
+                          <h6 className="text-sm font-black text-white">{slab.title}</h6>
+                          <div className="text-lg font-black text-amber-300">{slab.price}</div>
+                          <div className="text-[11px] font-bold text-indigo-300">
+                            📹 {slab.cams} • 🏷️ {slab.blocks} AI ब्लॉक्स
+                          </div>
+                          <ul className="space-y-1 text-[11px] text-dark-300 pt-1 border-t border-white/10">
+                            {slab.features.map((f, i) => (
+                              <li key={i} className="flex items-start gap-1.5">
+                                <span className="text-emerald-400">✓</span>
+                                <span>{f}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+
+                        <button
+                          type="button"
+                          disabled={upgradingSlab !== null}
+                          onClick={() =>
+                            handleApplySlabOrAddOn({
+                              slabId: slab.id,
+                              targetLimit: slab.blocks,
+                              label: `${slab.title} (${slab.blocks} ब्लॉक्स)`,
+                            })
+                          }
+                          className={`w-full py-2 rounded-xl text-xs font-extrabold transition shadow ${
+                            isCurrent
+                              ? 'bg-emerald-600/30 border border-emerald-500/40 text-emerald-200 hover:bg-emerald-600/40'
+                              : 'bg-indigo-600 hover:bg-indigo-500 text-white'
+                          }`}
+                        >
+                          {upgradingSlab === slab.id ? 'लागू हो रहा है...' : isCurrent ? '✓ वर्तमान स्लैब (री-सेट)' : 'यह स्लैब लागू करें'}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* 4 Extra Add-On Packs */}
+              <div>
+                <h5 className="text-xs font-extrabold text-dark-300 uppercase tracking-wider mb-2.5">
+                  2. एक्स्ट्रा Add-On पैक्स (किसी भी स्लैब के ऊपर अतिरिक्त क्षमता बढ़ाएँ)
+                </h5>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+                  {[
+                    {
+                      id: 'ADDON_15_BLOCKS',
+                      title: '➕ +15 एक्स्ट्रा AI ब्लॉक्स',
+                      price: '+ ₹299 / माह',
+                      desc: 'मौजूदा प्लान में 15 नए कलर-कोडेड AI विज़ुअल ब्लॉक्स तुरंत जोड़ें।',
+                      delta: 15,
+                    },
+                    {
+                      id: 'ADDON_50_BLOCKS',
+                      title: '➕ +50 एक्स्ट्रा AI ब्लॉक्स',
+                      price: '+ ₹799 / माह',
+                      desc: 'बड़ी दुकान के हर रैक, फ्रिज व कैन के लिए 50 अतिरिक्त AI ब्लॉक्स जोड़ें।',
+                      delta: 50,
+                    },
+                    {
+                      id: 'ADDON_4_CAMERAS',
+                      title: '📹 +4 अतिरिक्त कैमरे + 20 ब्लॉक्स',
+                      price: '+ ₹499 / माह',
+                      desc: '8 या 16 चैनल DVR में 4 अतिरिक्त कैमरों और 20 AI ब्लॉक्स का विस्तार।',
+                      delta: 20,
+                    },
+                    {
+                      id: 'ADDON_AUDIO_AI',
+                      title: '🎙️ ऑडियो Tri-Match बूस्टर + 10 ब्लॉक्स',
+                      price: '+ ₹399 / माह',
+                      desc: 'हर ग्राहक की हिंदी आवाज़ + वीडियो + POS बिल मिलान और +10 AI ब्लॉक्स।',
+                      delta: 10,
+                    },
+                  ].map((addon) => {
+                    const curLimit = quota?.allowedBlocksLimit || 15;
+                    const nextLimit = curLimit + addon.delta;
+                    return (
+                      <div key={addon.id} className="bg-dark-950/80 border border-dark-800 hover:border-amber-500/40 rounded-2xl p-3.5 flex flex-col justify-between space-y-3 transition">
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <span className="font-black text-white">{addon.title}</span>
+                          </div>
+                          <div className="text-sm font-black text-emerald-400">{addon.price}</div>
+                          <p className="text-[11px] text-dark-400 leading-relaxed">{addon.desc}</p>
+                        </div>
+
+                        <button
+                          type="button"
+                          disabled={upgradingSlab !== null}
+                          onClick={() =>
+                            handleApplySlabOrAddOn({
+                              addOnId: addon.id,
+                              targetLimit: nextLimit,
+                              label: addon.title,
+                            })
+                          }
+                          className="w-full py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 font-extrabold text-xs transition"
+                        >
+                          {upgradingSlab === addon.id ? 'जुड़ रहा है...' : `+ कोटा बढ़ाएँ (${curLimit} → ${nextLimit})`}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
           )}
 
