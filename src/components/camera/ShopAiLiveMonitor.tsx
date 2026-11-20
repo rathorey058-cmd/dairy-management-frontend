@@ -333,7 +333,7 @@ export const ShopAiLiveMonitor: React.FC<Props> = ({
     setCameraSource(source);
   };
 
-  const _captureWebcamBase64 = (): string | null => {
+  const captureWebcamBase64 = (): string | null => {
     if (!webcamVideoRef.current) return null;
     try {
       const canvas = document.createElement('canvas');
