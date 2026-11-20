@@ -61,7 +61,7 @@ export const ShopAiLiveMonitor: React.FC<Props> = ({
   }, [cameras, selectedCameraId]);
 
   const [isAuditingNow, setIsAuditingNow] = useState(false);
-  const [lastAuditResult, setLastAuditResult] = useState<ShopAiReportItem | null>(null);
+  const [lastAuditResult, _setLastAuditResult] = useState<ShopAiReportItem | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
 
   // Ultra-Crisp Actionable Incidents Stream
@@ -80,7 +80,7 @@ export const ShopAiLiveMonitor: React.FC<Props> = ({
   const [selectedDate, setSelectedDate] = useState<string>(getTodayStr());
 
   // Live Shop Context
-  const [liveContextPrompt] = useState(
+  const [_liveContextPrompt] = useState(
     'दुकान: श्री कृष्णा डेयरी। काउंटर पर नौकर आकाश है। गल्ला, ग्राहक बिक्री व हाथ की हरकतों पर 2-लाइन क्रिस्प अलर्ट दें।'
   );
 
@@ -333,7 +333,7 @@ export const ShopAiLiveMonitor: React.FC<Props> = ({
     setCameraSource(source);
   };
 
-  const captureWebcamBase64 = (): string | null => {
+  const _captureWebcamBase64 = (): string | null => {
     if (!webcamVideoRef.current) return null;
     try {
       const canvas = document.createElement('canvas');
