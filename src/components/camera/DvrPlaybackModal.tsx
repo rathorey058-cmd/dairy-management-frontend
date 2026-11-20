@@ -23,10 +23,16 @@ interface Props {
 export const DvrPlaybackModal: React.FC<Props> = ({ isOpen, onClose, cameras }) => {
   const [selectedCamId, setSelectedCamId] = useState<string>(cameras[0]?._id || '');
   const [playbackDate, setPlaybackDate] = useState<string>(
-    new Date().toISOString().split('T')[0]
+    new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().split('T')[0]
   );
-  const [playbackStartTime, setPlaybackStartTime] = useState<string>('10:00');
-  const [playbackEndTime, setPlaybackEndTime] = useState<string>('11:00');
+  const [playbackStartTime, setPlaybackStartTime] = useState<string>('08:00');
+  const [playbackEndTime, setPlaybackEndTime] = useState<string>('14:00');
+
+  useEffect(() => {
+    if ((!selectedCamId || !cameras.some((c) => c._id === selectedCamId)) && cameras.length > 0) {
+      setSelectedCamId(cameras[0]._id);
+    }
+  }, [cameras, selectedCamId]);
   
   const [loading, setLoading] = useState(false);
   const [playbackInfo, setPlaybackInfo] = useState<any | null>(null);
@@ -67,30 +73,55 @@ export const DvrPlaybackModal: React.FC<Props> = ({ isOpen, onClose, cameras }) 
   const handleFastAiAudit = async () => {
     try {
       setIsAuditingFast(true);
-      setAuditSummary(null);
-      const res = await API.get('/cameras/reports/time-interval', {
-        params: {
-          date: playbackDate,
-          startTime: playbackStartTime,
-          endTime: playbackEndTime
-        }
+      const [tiRes, dsRes, tlRes] = await Promise.all([
+        API.get('/cameras/reports/time-interval', {
+          params: { date: playbackDate, startTime: playbackStartTime, endTime: playbackEndTime },
+        }).catch(() => ({ data: null })),
+        API.get('/cameras/reports/daily-summary', {
+          params: { date: playbackDate, startTime: playbackStartTime, endTime: playbackEndTime },
+        }).catch(() => ({ data: null })),
+        API.get('/cameras/playback/timeline', {
+          params: { date: playbackDate, startTime: playbackStartTime, endTime: playbackEndTime },
+        }).catch(() => ({ data: null })),
+      ]);
+
+      if (tlRes.data) setTimeline(tlRes.data);
+      const base = tiRes.data || {};
+      const h = dsRes.data?.headline || {};
+      const footfall = tlRes.data?.customers ?? h.customers ?? base.aiSurveillance?.totalFootfall ?? 0;
+      const gallaOpens = h.gallaOpenings ?? base.aiSurveillance?.drawerOpeningsCount ?? 0;
+
+      setAuditSummary({
+        ...base,
+        financialSummary: {
+          totalGrossSales: h.sales ?? base.financialSummary?.totalGrossSales ?? 0,
+          totalCashCollected: h.cash ?? base.financialSummary?.totalCashCollected ?? 0,
+        },
+        salesBreakdown: {
+          milkSales: {
+            totalLitres: base.salesBreakdown?.milkSales?.totalLitres ?? 0,
+          },
+        },
+        aiSurveillance: {
+          ...(base.aiSurveillance || {}),
+          totalFootfall: footfall,
+          drawerOpeningsCount: gallaOpens,
+        },
       });
-      setAuditSummary(res.data);
     } catch (err: any) {
-      alert('फास्ट AI ऑडिट में त्रुटि आई।');
+      setErrorMessage('फास्ट AI ऑडिट लोड करने में समस्या आई।');
     } finally {
       setIsAuditingFast(false);
     }
   };
 
-  if (!isOpen) return null;
-
-  const handleSearchPlayback = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedCamId) {
+  const runPlaybackQuery = async (camIdOverride?: string) => {
+    const activeCamId = camIdOverride || selectedCamId || cameras[0]?._id || '';
+    if (!activeCamId) {
       setErrorMessage('कृपया पहले एक कैमरा चुनें।');
       return;
     }
+    if (activeCamId !== selectedCamId) setSelectedCamId(activeCamId);
 
     setLoading(true);
     setErrorMessage(null);
@@ -98,7 +129,7 @@ export const DvrPlaybackModal: React.FC<Props> = ({ isOpen, onClose, cameras }) 
     try {
       const res = await API.get('/cameras/playback/search', {
         params: {
-          cameraId: selectedCamId,
+          cameraId: activeCamId,
           date: playbackDate,
           startTime: playbackStartTime,
           endTime: playbackEndTime,
@@ -153,6 +184,19 @@ export const DvrPlaybackModal: React.FC<Props> = ({ isOpen, onClose, cameras }) 
     } finally {
       setLoading(false);
     }
+  };
+
+  useEffect(() => {
+    if (isOpen && cameras.length > 0) {
+      runPlaybackQuery(selectedCamId || cameras[0]._id);
+    }
+  }, [isOpen, cameras.length]);
+
+  if (!isOpen) return null;
+
+  const handleSearchPlayback = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await runPlaybackQuery();
   };
 
   return (

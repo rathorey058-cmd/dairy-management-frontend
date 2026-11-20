@@ -40,6 +40,8 @@ interface Props {
 export const ShopAiLiveMonitor: React.FC<Props> = ({
   cameras,
   onReportCreated,
+  onOpenTimeGalla,
+  onOpenDvrPlayback,
   onOpenVisualPairing
 }) => {
   const { t, language } = useAuth();
@@ -346,36 +348,80 @@ export const ShopAiLiveMonitor: React.FC<Props> = ({
     }
   };
 
-  // Instant AI Live Audit
+  const [instantAuditCard, setInstantAuditCard] = useState<any | null>(null);
+
+  // Instant AI Live Audit (Runs On-Device YOLOv8 on active frame + fetches real today summary in 1s)
   const handleInstantLiveAudit = async (camIdToAudit?: string) => {
-    const targetCamId = camIdToAudit || selectedCameraId;
-    const targetCam = cameras.find((c) => c._id === targetCamId);
+    const targetCamId = camIdToAudit || selectedCameraId || cameras[0]?._id;
+    const targetCam = cameras.find((c) => c._id === targetCamId) || cameras[0];
     setIsAuditingNow(true);
     setStreamError(null);
 
     try {
-      let snapshotBase64 = '';
-      if (cameraSource === 'WEBCAM') {
-        snapshotBase64 = captureWebcamBase64() || '';
+      const todayDate = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().split('T')[0];
+
+      // 1. Run local YOLOv8 on current visible camera frame
+      let frameDetections: DetectedObject[] = [];
+      const activeBlobSrc = liveSnapshotUrl || (targetCamId ? gridSnapshots[targetCamId] : null) || Object.values(gridSnapshots)[0];
+      if (activeBlobSrc) {
+        try {
+          await mobileYolo.initModel();
+          const img = new Image();
+          img.crossOrigin = 'anonymous';
+          img.src = activeBlobSrc;
+          await new Promise((res, rej) => { img.onload = res; img.onerror = rej; });
+          frameDetections = await mobileYolo.detectFrame(img);
+          setMobileDetections(frameDetections);
+        } catch {}
       }
 
-      const payload = {
-        cameraId: cameraSource === 'HIKVISION' ? targetCamId : undefined,
-        snapshotBase64: snapshotBase64 || undefined,
-        userContextPrompt: liveContextPrompt,
-        cameraName: targetCam
-          ? `${targetCam.name} (Ch #${targetCam.channel || 1})`
-          : (cameraSource === 'HIKVISION' ? 'Hikvision IP Camera' : 'Counter Webcam'),
-      };
+      // 2. Fetch today's real live summary & recent timeline in parallel
+      const [sumRes, tlRes] = await Promise.all([
+        API.get('/cameras/reports/daily-summary', { params: { date: todayDate, startTime: '00:00', endTime: '23:59' } }).catch(() => ({ data: null })),
+        API.get('/cameras/playback/timeline', { params: { date: todayDate, startTime: '00:00', endTime: '23:59' } }).catch(() => ({ data: null })),
+      ]);
 
-      const res = await API.post('/cameras/shop-ai/live-audit', payload, { timeout: 120000 });
-      if (res.data?.report) {
-        setLastAuditResult(res.data.report);
-        if (onReportCreated) onReportCreated();
-        fetchIncidents();
+      const h = sumRes.data?.headline || {};
+      const tlEvents: any[] = tlRes.data?.events || [];
+      const personsNow = frameDetections.filter((d) => d.className === 'person').length;
+      const objectsNow = frameDetections.map((d) => `${d.className} (${d.confidence}%)`);
+      const totalPicks = pairingBlocks.reduce((acc, b) => acc + (b.shelfConfig?.pickCount || b.totalPicks || 0), 0);
+
+      // Extract latest audio heard if any
+      let latestHeard = '';
+      for (let i = tlEvents.length - 1; i >= 0; i--) {
+        const n = String(tlEvents[i]?.note || '');
+        if (n.startsWith('TRI_JSON:')) {
+          try {
+            const p = JSON.parse(n.slice(9));
+            if (p.audio && p.audio.length > 0) {
+              latestHeard = p.audio[p.audio.length - 1].text;
+              break;
+            }
+          } catch {}
+        }
       }
+
+      setInstantAuditCard({
+        time: new Date().toLocaleTimeString('hi-IN'),
+        cameraName: targetCam ? `${targetCam.name} [Ch #${targetCam.channel || 1}]` : 'DVR Live Camera',
+        personsNow,
+        objectsNow,
+        todayCustomers: h.customers ?? tlRes.data?.customers ?? 0,
+        todayBills: h.bills ?? 0,
+        todaySales: h.sales ?? 0,
+        todayCash: h.cash ?? 0,
+        gallaOpenings: h.gallaOpenings ?? 0,
+        activeBlocks: pairingBlocks.length,
+        totalPicks,
+        latestHeard,
+        alerts: sumRes.data?.alerts || [],
+      });
+
+      if (onReportCreated) onReportCreated();
+      fetchIncidents();
     } catch (err: any) {
-      setStreamError(err.response?.data?.message || err.message || 'लाइव निरीक्षण में त्रुटि आई।');
+      setStreamError('त्वरित AI ऑडिट लोड करने में समस्या आई।');
     } finally {
       setIsAuditingNow(false);
     }
@@ -710,24 +756,46 @@ export const ShopAiLiveMonitor: React.FC<Props> = ({
 
             {/* Quick Audit Action Bar */}
             <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-xs">
-              <button
-                type="button"
-                onClick={() => handleInstantLiveAudit()}
-                disabled={isAuditingNow}
-                className="py-2.5 px-4 rounded-xl bg-gradient-to-r from-emerald-600 to-indigo-600 hover:from-emerald-500 hover:to-indigo-500 text-white font-extrabold text-xs transition-all shadow-md active:scale-95 disabled:opacity-50 flex items-center gap-2"
-              >
-                {isAuditingNow ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                    <span>AI ऑडिट जारी है...</span>
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="w-4 h-4 text-emerald-200" />
-                    <span>⚡ त्वरित AI ऑडिट (Instant Audit)</span>
-                  </>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleInstantLiveAudit()}
+                  disabled={isAuditingNow}
+                  className="py-2.5 px-4 rounded-xl bg-gradient-to-r from-emerald-600 to-indigo-600 hover:from-emerald-500 hover:to-indigo-500 text-white font-extrabold text-xs transition-all shadow-md active:scale-95 disabled:opacity-50 flex items-center gap-2"
+                >
+                  {isAuditingNow ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>AI ऑडिट जारी है...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4 text-emerald-200" />
+                      <span>⚡ त्वरित AI ऑडिट (Instant Audit)</span>
+                    </>
+                  )}
+                </button>
+
+                {onOpenTimeGalla && (
+                  <button
+                    type="button"
+                    onClick={onOpenTimeGalla}
+                    className="py-2.5 px-3.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-300 font-extrabold text-xs transition flex items-center gap-1.5"
+                  >
+                    <span>📊 शॉर्ट व Tri-Match रिपोर्ट</span>
+                  </button>
                 )}
-              </button>
+
+                {onOpenDvrPlayback && (
+                  <button
+                    type="button"
+                    onClick={onOpenDvrPlayback}
+                    className="py-2.5 px-3.5 rounded-xl bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/40 text-purple-300 font-extrabold text-xs transition flex items-center gap-1.5"
+                  >
+                    <span>⏪ DVR प्लेबैक (HDD)</span>
+                  </button>
+                )}
+              </div>
 
               <div className="flex items-center gap-2">
                 <select
@@ -750,6 +818,69 @@ export const ShopAiLiveMonitor: React.FC<Props> = ({
                 </select>
               </div>
             </div>
+
+            {instantAuditCard && (
+              <div className="p-4 rounded-2xl bg-gradient-to-r from-indigo-950/60 via-dark-950 to-emerald-950/40 border border-emerald-500/40 space-y-3 text-xs animate-fade-in">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-dark-800 pb-2">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                    <span className="font-black text-white">
+                      ⚡ लाइव AI ऑडिट रिपोर्ट ({instantAuditCard.cameraName} • {instantAuditCard.time})
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setInstantAuditCard(null)}
+                    className="text-dark-400 hover:text-white text-xs"
+                  >
+                    ✕ बंद करें
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                  <div className="bg-dark-900/90 p-2.5 rounded-xl border border-dark-800">
+                    <span className="text-[10px] text-dark-400 block">अभी कैमरे पर (Live YOLO)</span>
+                    <span className="text-base font-black text-emerald-400">{instantAuditCard.personsNow} व्यक्ति</span>
+                  </div>
+                  <div className="bg-dark-900/90 p-2.5 rounded-xl border border-dark-800">
+                    <span className="text-[10px] text-dark-400 block">आज कुल ग्राहक आए</span>
+                    <span className="text-base font-black text-sky-400">{instantAuditCard.todayCustomers} ग्राहक</span>
+                  </div>
+                  <div className="bg-dark-900/90 p-2.5 rounded-xl border border-dark-800">
+                    <span className="text-[10px] text-dark-400 block">आज कुल POS बिक्री</span>
+                    <span className="text-base font-black text-white">₹{instantAuditCard.todaySales} ({instantAuditCard.todayBills} बिल)</span>
+                  </div>
+                  <div className="bg-dark-900/90 p-2.5 rounded-xl border border-dark-800">
+                    <span className="text-[10px] text-dark-400 block">गल्ला व AI ज़ोन गतिविधि</span>
+                    <span className="text-base font-black text-amber-400">{instantAuditCard.gallaOpenings} गल्ला • {instantAuditCard.totalPicks} पिक्स</span>
+                  </div>
+                </div>
+
+                {instantAuditCard.latestHeard && (
+                  <div className="p-2.5 rounded-xl bg-dark-900/80 border border-teal-500/30 text-teal-200 flex items-center justify-between">
+                    <span>🎙️ <strong>ताज़ा माइक ऑडियो (Whisper AI):</strong> “{instantAuditCard.latestHeard}”</span>
+                  </div>
+                )}
+
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                  <span className="text-[11px] text-dark-300">
+                    सक्रिय AI ब्लॉक्स: <strong className="text-white">{instantAuditCard.activeBlocks}</strong>
+                    {instantAuditCard.objectsNow.length > 0 && ` • फ्रेम में: ${instantAuditCard.objectsNow.slice(0, 4).join(', ')}`}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    {onOpenTimeGalla && (
+                      <button
+                        type="button"
+                        onClick={onOpenTimeGalla}
+                        className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow"
+                      >
+                        🔍 पूरी Video+Audio+POS रिपोर्ट खोलें
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
 
             {streamError && (
               <div className="p-3 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2">
