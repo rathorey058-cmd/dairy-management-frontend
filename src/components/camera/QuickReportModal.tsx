@@ -26,46 +26,70 @@ export interface ParsedCustomerVisit {
   gallaDeposited: boolean;
   gallaStatusText: string;
   posBillAmount: number;
+  audioCaptured: boolean;
+  videoCaptured: boolean;
 }
+
+const FAKE_CYCLE_QUOTES = new Set([
+  'भैया ₹30 का खुला दूध दे दो',
+  'भैया ₹20 का दूध दे दो',
+  'भैया ₹40 का छाछ व दूध पैकेट दे दो',
+  'भैया ₹60 का खुला दूध दे दो',
+  'भैया ₹25 का दही दे दो',
+  'भैया ₹10 का दूध दे दो',
+]);
 
 export function parseVisitsFromTimeline(tlData: any): ParsedCustomerVisit[] {
   const events: any[] = (tlData?.events || []).filter(
     (e: any) => e.type === 'FACE_VISIT' && !String(e.image || '').startsWith('SCAN_REQ:') && !String(e.image || '').startsWith('AUDIO_REQ:')
   );
-  const defaults = [
-    { item: 'खुला दूध (आधा लीटर)', given: 'दूध पतीला से दूध नापकर दिया गया', amt: 30 },
-    { item: 'दूध (₹20 खुला दूध)', given: 'दूध पतीला से दूध दिया गया', amt: 20 },
-    { item: 'छाछ व दूध पैकेट', given: 'काउंटर व डीप फ्रीजर से सामान दिया', amt: 40 },
-    { item: 'खुला दूध (1 लीटर)', given: 'दूध पतीला से 1L दूध दिया गया', amt: 60 },
-    { item: 'दही (पाव भर / पैकेट)', given: 'डीप फ्रीजर व कांटा से दही दिया', amt: 25 },
-    { item: 'दूध (₹10 खुला दूध)', given: 'दूध पतीला से दूध दिया गया', amt: 10 },
-  ];
 
   return events.map((e: any, idx: number) => {
     const rawNote = String(e.note || '');
-    const fb = defaults[idx % defaults.length];
+    const hasImg = Boolean(e.image && String(e.image).startsWith('data:image'));
+
     if (rawNote.startsWith('TRI_JSON:')) {
       try {
         const p = JSON.parse(rawNote.slice(9));
-        const amt = Number(p.amountPaid || p.heardAmount || p.pos?.total || fb.amt);
-        const reqItem = p.requestedItem || (p.audio?.[0]?.items?.[0]?.name) || fb.item;
-        const quote = p.audio?.[0]?.text || `भैया ₹${amt} का ${reqItem.split('(')[0].trim()} दे दो`;
-        const given = p.givenItem || fb.given;
-        const gallaDep = p.gallaDeposited !== false;
-        return {
-          id: p.id || `visit-${idx}`,
-          time: e.time,
-          people: Number(e.count || p.people || 1),
-          image: e.image || null,
-          requestedItem: reqItem,
-          audioQuote: quote,
-          givenItem: given,
-          amountPaid: amt,
-          gallaDeposited: gallaDep,
-          gallaStatusText: p.gallaStatusText || (gallaDep ? `₹${amt} गल्ले में डाले गए` : `₹${amt} सीधा कैश`),
-          posBillAmount: Number(p.pos?.total || 0),
-        };
-      } catch { /* fallback below */ }
+        const rawQuote = String(p.audioQuote || p.audio?.[0]?.text || '').trim();
+        const isLegacyFake = FAKE_CYCLE_QUOTES.has(rawQuote) && Number(p.pos?.total || 0) === 0;
+
+        if (!isLegacyFake) {
+          const amt = Number(p.amountPaid || p.heardAmount || p.pos?.total || 0);
+          const quote = rawQuote && rawQuote !== 'ऑडियो कैप्चर नहीं हुआ' ? rawQuote : 'ऑडियो कैप्चर नहीं हुआ';
+          const reqItem =
+            p.requestedItem && p.requestedItem !== 'ऑडियो कैप्चर नहीं हुआ'
+              ? p.requestedItem
+              : p.audio?.[0]?.items?.[0]?.name || 'ऑडियो कैप्चर नहीं हुआ';
+          const given =
+            p.givenItem ||
+            (hasImg ? 'काउंटर पर ग्राहक देखा गया (दिया गया सामान कैप्चर नहीं हुआ)' : 'वीडियो फुटेज कैप्चर नहीं हुआ');
+          const gallaDep = Boolean(p.gallaDeposited && (amt > 0 || (p.galla && p.galla.length > 0)));
+          return {
+            id: p.id || `visit-${idx}`,
+            time: e.time,
+            people: Number(e.count || p.people || 1),
+            image: e.image || null,
+            requestedItem: reqItem,
+            audioQuote: quote,
+            givenItem: given,
+            amountPaid: amt,
+            gallaDeposited: gallaDep,
+            gallaStatusText:
+              p.gallaStatusText ||
+              (amt > 0
+                ? gallaDep
+                  ? `₹${amt} दर्ज`
+                  : `₹${amt} (गल्ला रिकॉर्ड नहीं)`
+                : 'रकम व गल्ला कैप्चर नहीं हुआ'),
+            posBillAmount: Number(p.pos?.total || 0),
+            audioCaptured: quote !== 'ऑडियो कैप्चर नहीं हुआ',
+            videoCaptured: hasImg,
+          };
+        }
+      } catch {
+        /* fallback below */
+      }
     }
 
     return {
@@ -73,13 +97,17 @@ export function parseVisitsFromTimeline(tlData: any): ParsedCustomerVisit[] {
       time: e.time,
       people: Number(e.count || 1),
       image: e.image || null,
-      requestedItem: fb.item,
-      audioQuote: `भैया ₹${fb.amt} का ${fb.item.split('(')[0].trim()} दे दो`,
-      givenItem: fb.given,
-      amountPaid: fb.amt,
-      gallaDeposited: true,
-      gallaStatusText: `₹${fb.amt} गल्ले में डाले गए`,
+      requestedItem: 'ऑडियो कैप्चर नहीं हुआ',
+      audioQuote: 'ऑडियो कैप्चर नहीं हुआ',
+      givenItem: hasImg
+        ? 'काउंटर पर ग्राहक देखा गया (दिया गया सामान कैप्चर नहीं हुआ)'
+        : 'वीडियो फुटेज कैप्चर नहीं हुआ',
+      amountPaid: 0,
+      gallaDeposited: false,
+      gallaStatusText: 'रकम व गल्ला कैप्चर नहीं हुआ',
       posBillAmount: 0,
+      audioCaptured: false,
+      videoCaptured: hasImg,
     };
   });
 }
@@ -93,6 +121,7 @@ export const QuickReportModal: React.FC<Props> = ({ isOpen, onClose }) => {
   const [visits, setVisits] = useState<ParsedCustomerVisit[]>([]);
   const [openPhotoId, setOpenPhotoId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [scanningSlab, setScanningSlab] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [showTri, setShowTri] = useState(false);
 
@@ -113,6 +142,26 @@ export const QuickReportModal: React.FC<Props> = ({ isOpen, onClose }) => {
     }
   }, [date, start, end]);
 
+  const handleScanDvrSlab = async () => {
+    setScanningSlab(true);
+    try {
+      await API.post('/cameras/evaluate-edge-rules', {
+        footfallArrivals: 1,
+        footfallSnapshot: `SCAN_REQ:1|${date}|${start}|${end}`,
+      }).catch(() => {});
+      await API.post('/cameras/evaluate-edge-rules', {
+        footfallArrivals: 1,
+        footfallSnapshot: `AUDIO_REQ:1|${date}|${start}|${end}`,
+      }).catch(() => {});
+      setTimeout(() => {
+        load();
+        setScanningSlab(false);
+      }, 7000);
+    } catch {
+      setScanningSlab(false);
+    }
+  };
+
   useEffect(() => {
     if (isOpen) load();
   }, [isOpen, load]);
@@ -125,6 +174,7 @@ export const QuickReportModal: React.FC<Props> = ({ isOpen, onClose }) => {
   const posSalesTotal = Number(h.sales || 0);
   const combinedGalla = Math.max(aiGallaTotal, posSalesTotal);
   const gallaDepositedCount = visits.filter((v) => v.gallaDeposited).length || Number(h.gallaOpenings || 0);
+  const capturedItemCount = visits.filter((v) => v.audioCaptured || v.posBillAmount > 0 || v.amountPaid > 0).length;
 
   const Stat = ({ icon, label, value, sub, tone }: any) => (
     <div className="bg-dark-900 border border-dark-800 rounded-2xl p-3 text-center">
@@ -182,13 +232,23 @@ export const QuickReportModal: React.FC<Props> = ({ isOpen, onClose }) => {
               onChange={(e) => setEnd(e.target.value)}
               className="bg-dark-950 border border-dark-700 rounded-xl px-2.5 py-1.5 text-white"
             />
-            <button
-              onClick={load}
-              disabled={loading}
-              className="ml-auto px-4 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold flex items-center gap-1.5 shadow"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} /> देखें
-            </button>
+            <div className="ml-auto flex items-center gap-2">
+              <button
+                onClick={handleScanDvrSlab}
+                disabled={scanningSlab}
+                className="px-3 py-1.5 rounded-xl bg-teal-600/20 border border-teal-500/40 text-teal-300 font-bold flex items-center gap-1.5"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${scanningSlab ? 'animate-spin' : ''}`} />
+                {scanningSlab ? 'DVR स्लैब स्कैन चालू...' : 'DVR से ऑडियो+वीडियो स्कैन'}
+              </button>
+              <button
+                onClick={load}
+                disabled={loading}
+                className="px-4 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold flex items-center gap-1.5 shadow"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} /> देखें
+              </button>
+            </div>
           </div>
 
           {err && (
@@ -223,9 +283,9 @@ export const QuickReportModal: React.FC<Props> = ({ isOpen, onClose }) => {
                 <Stat
                   icon={<PackageCheck className="w-5 h-5" />}
                   tone="text-indigo-400"
-                  label="सामान दिया गया"
-                  value={`${visits.length} बार`}
-                  sub="दूध / छाछ / दही"
+                  label="सामान कैप्चर हुआ"
+                  value={`${capturedItemCount} / ${visits.length}`}
+                  sub="ऑडियो / बिल से पुष्ट"
                 />
                 <Stat
                   icon={<DoorOpen className="w-5 h-5" />}
@@ -281,10 +341,21 @@ export const QuickReportModal: React.FC<Props> = ({ isOpen, onClose }) => {
                             <div className="text-[10px] text-teal-400 font-bold flex items-center gap-1">
                               <Mic className="w-3 h-3" /> 1. ऑडियो (ग्राहक ने क्या माँगा):
                             </div>
-                            <div className="text-white font-semibold">“{v.audioQuote}”</div>
-                            <div className="text-[11px] text-teal-300 font-bold">
-                              माँगा गया सामान: {v.requestedItem}
-                            </div>
+                            {v.audioCaptured ? (
+                              <>
+                                <div className="text-white font-semibold">“{v.audioQuote}”</div>
+                                <div className="text-[11px] text-teal-300 font-bold">
+                                  माँगा गया सामान: {v.requestedItem}
+                                </div>
+                              </>
+                            ) : (
+                              <>
+                                <div className="text-amber-300/90 font-semibold">⚠️ ऑडियो कैप्चर नहीं हुआ</div>
+                                <div className="text-[11px] text-dark-400 font-medium">
+                                  माँगा गया सामान: कैप्चर नहीं हुआ
+                                </div>
+                              </>
+                            )}
                           </div>
 
                           {/* 3. Video: What item was given */}
@@ -292,8 +363,10 @@ export const QuickReportModal: React.FC<Props> = ({ isOpen, onClose }) => {
                             <div className="text-[10px] text-sky-400 font-bold flex items-center gap-1">
                               <Video className="w-3 h-3" /> 2. वीडियो (क्या सामान दिया):
                             </div>
-                            <div className="text-white font-semibold">{v.givenItem}</div>
-                            {v.image && (
+                            <div className={v.videoCaptured ? 'text-white font-semibold' : 'text-amber-300/90 font-semibold'}>
+                              {v.givenItem}
+                            </div>
+                            {v.image ? (
                               <button
                                 type="button"
                                 onClick={() => setOpenPhotoId(openPhotoId === v.id ? null : v.id)}
@@ -302,19 +375,35 @@ export const QuickReportModal: React.FC<Props> = ({ isOpen, onClose }) => {
                                 <Eye className="w-3 h-3" />
                                 {openPhotoId === v.id ? 'फोटो छुपाएँ' : 'उस समय की कैमरा फोटो देखें'}
                               </button>
+                            ) : (
+                              <div className="text-[10px] text-dark-400">फुटेज फोटो उपलब्ध नहीं</div>
                             )}
                           </div>
 
                           {/* 4. Money & Galla Status */}
-                          <div className="sm:col-span-3 bg-emerald-950/30 p-2 rounded-xl border border-emerald-500/30 flex flex-col justify-between">
-                            <div className="text-[10px] text-emerald-300 font-bold">
+                          <div
+                            className={`sm:col-span-3 p-2 rounded-xl border flex flex-col justify-between ${
+                              v.amountPaid > 0
+                                ? 'bg-emerald-950/30 border-emerald-500/30'
+                                : 'bg-amber-950/20 border-amber-500/30'
+                            }`}
+                          >
+                            <div className={`text-[10px] font-bold ${v.amountPaid > 0 ? 'text-emerald-300' : 'text-amber-300'}`}>
                               3. पैसे व गल्ला हिसाब:
                             </div>
-                            <div className="text-base font-black text-emerald-400">
-                              ₹{v.amountPaid} प्राप्त
-                            </div>
-                            <div className="text-[11px] text-emerald-200 font-bold flex items-center gap-1">
-                              <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
+                            {v.amountPaid > 0 ? (
+                              <div className="text-base font-black text-emerald-400">₹{v.amountPaid} प्राप्त</div>
+                            ) : (
+                              <div className="text-xs font-bold text-amber-300">रकम कैप्चर नहीं हुई</div>
+                            )}
+                            <div
+                              className={`text-[11px] font-bold flex items-center gap-1 ${
+                                v.amountPaid > 0 ? 'text-emerald-200' : 'text-dark-300'
+                              }`}
+                            >
+                              <CheckCircle2
+                                className={`w-3 h-3 shrink-0 ${v.amountPaid > 0 ? 'text-emerald-400' : 'text-amber-400'}`}
+                              />
                               <span>{v.gallaStatusText}</span>
                             </div>
                           </div>

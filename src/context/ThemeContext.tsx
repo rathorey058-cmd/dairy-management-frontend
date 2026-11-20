@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 
-export type ThemeMode = 'auto' | 'dark' | 'light';
+export type ThemeMode = 'light' | 'dark' | 'auto';
 
 interface ThemeContextType {
   themeMode: ThemeMode;
@@ -14,16 +14,15 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [themeMode, setThemeModeState] = useState<ThemeMode>(() => {
-    return (localStorage.getItem('dairy_theme_mode') as ThemeMode) || 'auto';
+    const saved = localStorage.getItem('dairy_theme_mode_v2') as ThemeMode | null;
+    return saved || 'light';
   });
 
   const calculateIsDark = (mode: ThemeMode): boolean => {
     if (mode === 'dark') return true;
     if (mode === 'light') return false;
-    
-    // Auto Mode: Morning / Day (< 18:00 / 6:00 PM) = Dark; Evening / Night (>= 18:00 / 6:00 PM) = Light
     const hour = new Date().getHours();
-    return hour < 18;
+    return hour >= 20 || hour < 6;
   };
 
   const [isDark, setIsDark] = useState<boolean>(() => calculateIsDark(themeMode));
@@ -50,31 +49,20 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
 
     updateTheme();
-
-    // Check every 30 seconds for automatic 6:00 PM shift transition
-    const interval = setInterval(updateTheme, 30000);
+    const interval = setInterval(updateTheme, 60000);
     return () => clearInterval(interval);
   }, [themeMode]);
 
   const setThemeMode = (mode: ThemeMode) => {
     setThemeModeState(mode);
-    localStorage.setItem('dairy_theme_mode', mode);
+    localStorage.setItem('dairy_theme_mode_v2', mode);
   };
 
   const toggleTheme = () => {
-    if (themeMode === 'auto') {
-      setThemeMode('dark');
-    } else if (themeMode === 'dark') {
-      setThemeMode('light');
-    } else {
-      setThemeMode('auto');
-    }
+    setThemeMode(isDark ? 'light' : 'dark');
   };
 
-  const currentHour = new Date().getHours();
-  const timeScheduleInfo = themeMode === 'auto' 
-    ? (currentHour < 18 ? 'Auto: Morning Dark (till 6 PM)' : 'Auto: Evening Light (after 6 PM)')
-    : themeMode === 'dark' ? 'Manual Dark' : 'Manual Light';
+  const timeScheduleInfo = isDark ? 'Obsidian Dark' : 'Pearl Light';
 
   return (
     <ThemeContext.Provider value={{ themeMode, isDark, setThemeMode, toggleTheme, timeScheduleInfo }}>

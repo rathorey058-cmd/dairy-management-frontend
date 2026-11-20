@@ -15,7 +15,7 @@ import { sound } from '../utils/soundEngine';
 
 export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, tenant, language, setLanguage, logout, t } = useAuth();
-  const { themeMode, isDark, toggleTheme, timeScheduleInfo } = useTheme();
+  const { isDark, toggleTheme, timeScheduleInfo } = useTheme();
   const navigate = useNavigate();
   const location = useLocation();
   const [isGeminiChatOpen, setIsGeminiChatOpen] = useState(false);
@@ -89,44 +89,45 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
   ];
 
   return (
-    <div className="min-h-screen bg-[#090D16] text-slate-100 flex transition-colors duration-300 relative overflow-x-hidden">
-      
-      {/* 🌄 Subtle Ambient Depth Lighting */}
-      <div className="fixed top-0 left-0 w-full h-full pointer-events-none z-0 bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(16,185,129,0.12),rgba(255,255,255,0))]" />
-      <div className="fixed bottom-0 right-0 w-96 h-96 bg-indigo-500/10 rounded-full blur-[140px] pointer-events-none z-0" />
-      <div className="fixed top-1/2 left-0 w-80 h-80 bg-teal-500/10 rounded-full blur-[140px] pointer-events-none z-0" />
+    <div className="min-h-screen bg-dark-950 text-dark-100 flex transition-colors duration-200 relative overflow-x-hidden">
+      {/* Subtle Ambient Accent (Dark Mode Only) */}
+      {isDark && (
+        <div className="fixed top-0 left-0 w-full h-72 pointer-events-none z-0 bg-[radial-gradient(ellipse_70%_60%_at_50%_-20%,rgba(16,185,129,0.09),rgba(0,0,0,0))]" />
+      )}
 
       {/* ========================================================
-          DESKTOP SIDEBAR (Visible on lg: screens and up)
+          DESKTOP SIDEBAR (Executive SaaS Style)
          ======================================================== */}
-      <aside className="hidden lg:flex flex-col w-72 shrink-0 bg-[#0F1424] border-r-2 border-slate-800 sticky top-0 h-screen z-40 select-none shadow-2xl">
+      <aside className="hidden lg:flex flex-col w-64 shrink-0 bg-dark-900 border-r border-dark-800 sticky top-0 h-screen z-40 select-none">
         
         {/* Brand Header */}
-        <div className="p-5 border-b border-dark-800/80 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-emerald-600 via-teal-500 to-indigo-600 flex items-center justify-center font-black text-white shadow-lg shadow-emerald-950/50 text-base">
-              🐄
+        <div className="px-5 py-4 border-b border-dark-800 flex items-center justify-between">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-9 h-9 rounded-xl bg-emerald-600 keep-white-text flex items-center justify-center shadow-sm shrink-0">
+              <svg className="w-5 h-5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z" />
+              </svg>
             </div>
             <div className="overflow-hidden">
-              <h1 className="text-sm font-black text-white truncate tracking-tight">
-                {tenant?.name || 'Dairy Smart Engine'}
+              <h1 className="text-sm font-bold text-white truncate tracking-tight">
+                {tenant?.name || 'DairySmart OS'}
               </h1>
-              <p className="text-[10px] text-emerald-400 font-bold flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                <span>AI POS V2.0 • Online</span>
+              <p className="text-[11px] text-emerald-400 font-medium flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                <span>AI Vision Suite</span>
               </p>
             </div>
           </div>
         </div>
 
         {/* Quick Shift CTA */}
-        <div className="p-4 border-b border-dark-800/50">
+        <div className="p-3.5 border-b border-dark-800">
           <button
             onClick={() => navigate('/milk')}
-            className="w-full py-2.5 px-3.5 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs shadow-md shadow-emerald-950/40 flex items-center justify-center gap-2 transition-all active:scale-95 group"
+            className="w-full py-2.5 px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white keep-white-text font-semibold text-xs shadow-sm flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
           >
-            <Plus className="w-4 h-4 group-hover:rotate-90 transition-transform duration-200" />
-            <span>+ त्वरित दूध संकलन (Milk Entry)</span>
+            <Plus className="w-4 h-4" />
+            <span>त्वरित दूध संकलन (Milk Entry)</span>
           </button>
         </div>
 
@@ -134,7 +135,7 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
         <div className="flex-1 overflow-y-auto px-3 py-3 space-y-5 custom-scrollbar">
           {sidebarGroups.map((group, gIdx) => (
             <div key={gIdx} className="space-y-1">
-              <p className="px-3 text-[10px] font-black uppercase tracking-wider text-dark-400">
+              <p className="px-3 text-[10px] font-semibold uppercase tracking-wider text-dark-400">
                 {group.title}
               </p>
               <div className="space-y-0.5">
@@ -145,26 +146,20 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
                     <Link
                       key={item.path}
                       to={item.path}
-                      className={`flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all group ${
+                      className={`flex items-center justify-between px-3 py-2 rounded-lg text-[13px] font-medium transition-all group ${
                         isActive
-                          ? 'bg-gradient-to-r from-emerald-500/15 to-indigo-500/15 text-white border border-emerald-500/30 shadow-sm font-bold'
-                          : 'text-dark-300 hover:text-white hover:bg-dark-800/60'
+                          ? 'bg-emerald-500/10 text-emerald-400 font-semibold border border-emerald-500/20'
+                          : 'text-dark-300 hover:text-white hover:bg-dark-800'
                       }`}
                     >
                       <div className="flex items-center gap-2.5">
-                        <Icon className={`w-4 h-4 transition-transform group-hover:scale-110 ${
+                        <Icon className={`w-4 h-4 ${
                           isActive ? 'text-emerald-400' : 'text-dark-400 group-hover:text-dark-200'
                         }`} />
                         <span>{item.label}</span>
                       </div>
                       {item.badge && (
-                        <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded-full uppercase tracking-wider border ${
-                          item.badge === '2-Line' 
-                            ? 'bg-rose-500/15 text-rose-300 border-rose-500/30'
-                            : item.badge === 'दशक'
-                            ? 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30'
-                            : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
-                        }`}>
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                           {item.badge}
                         </span>
                       )}
@@ -177,19 +172,19 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
         </div>
 
         {/* Bottom Profile / Quick Settings in Sidebar */}
-        <div className="p-3 border-t border-dark-800/80 bg-dark-950/60 flex items-center justify-between">
-          <div className="flex items-center gap-2 overflow-hidden">
-            <div className="w-8 h-8 rounded-xl bg-dark-800 border border-dark-700 flex items-center justify-center font-bold text-xs text-white shrink-0">
+        <div className="p-3 border-t border-dark-800 bg-dark-950/60 flex items-center justify-between">
+          <div className="flex items-center gap-2.5 overflow-hidden">
+            <div className="w-8 h-8 rounded-lg bg-dark-800 border border-dark-700 flex items-center justify-center font-semibold text-xs text-white shrink-0">
               {user?.name ? user.name.charAt(0).toUpperCase() : 'U'}
             </div>
             <div className="overflow-hidden">
-              <p className="text-xs font-bold text-white truncate">{user?.name || 'Operator'}</p>
+              <p className="text-xs font-semibold text-white truncate">{user?.name || 'Operator'}</p>
               <p className="text-[10px] text-dark-400 truncate">{tenant?.ownerName || user?.role || 'Admin'}</p>
             </div>
           </div>
           <button
             onClick={() => setIsWizardOpen(true)}
-            className="p-1.5 rounded-xl bg-dark-800 text-dark-400 hover:text-white border border-dark-700 transition-colors"
+            className="p-1.5 rounded-lg bg-dark-800 text-dark-400 hover:text-white border border-dark-700 transition-colors"
             title="विज़ार्ड सेटिंग्स"
           >
             <Settings className="w-4 h-4" />
@@ -201,35 +196,37 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
       {/* ========================================================
           RIGHT CONTENT WRAPPER
          ======================================================== */}
-      <div className="flex-1 flex flex-col min-w-0 pb-16 lg:pb-6">
+      <div className="flex-1 flex flex-col min-w-0 pb-16 lg:pb-6 relative z-10">
         
         {/* Top Header Bar */}
-        <header className="sticky top-0 z-30 bg-dark-900/80 backdrop-blur-xl border-b border-dark-800 px-4 sm:px-6 py-3 flex items-center justify-between shadow-lg">
+        <header className="sticky top-0 z-30 bg-dark-900/90 backdrop-blur-md border-b border-dark-800 px-4 sm:px-6 py-2.5 flex items-center justify-between">
           
-          {/* Left Brand info on Mobile / Breadcrumb on Desktop */}
+          {/* Left Brand info on Mobile / Quick Navigation on Desktop */}
           <div className="flex items-center gap-3">
-            <div className="lg:hidden flex items-center gap-2">
-              <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-600 flex items-center justify-center font-bold text-white text-sm shadow-md">
-                🐄
+            <div className="lg:hidden flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-emerald-600 keep-white-text flex items-center justify-center shadow-sm">
+                <svg className="w-4 h-4 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z" />
+                </svg>
               </div>
               <div>
-                <h1 className="text-sm font-black text-white truncate max-w-[140px] sm:max-w-xs">
-                  {tenant?.name || 'Smart Dairy'}
+                <h1 className="text-sm font-bold text-white truncate max-w-[140px] sm:max-w-xs">
+                  {tenant?.name || 'DairySmart OS'}
                 </h1>
-                <p className="text-[9px] text-emerald-400 font-bold -mt-0.5">10-Day Cycle • AI Engine</p>
+                <p className="text-[10px] text-emerald-400 font-medium -mt-0.5">AI Vision & POS</p>
               </div>
             </div>
 
-            {/* Desktop Quick Action Chips for Fast 1-Click Operations */}
+            {/* Clean Executive Quick Action Buttons */}
             <div className="hidden sm:flex items-center gap-2">
               <button
                 onClick={() => {
                   sound.playClick();
                   navigate('/milk');
                 }}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-500/20 border-2 border-emerald-500/50 text-xs font-black text-emerald-300 hover:bg-emerald-500/30 transition-all active:scale-95 shadow-sm"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/25 text-xs font-semibold text-emerald-400 hover:bg-emerald-500/15 transition-all"
               >
-                <Droplets className="w-3.5 h-3.5 text-emerald-400" />
+                <Droplets className="w-3.5 h-3.5" />
                 <span>{t('quickMilkEntryBtn')}</span>
               </button>
 
@@ -238,7 +235,7 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
                   sound.playCashRegister();
                   navigate('/payments');
                 }}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-indigo-500/20 border-2 border-indigo-500/50 text-xs font-black text-indigo-300 hover:bg-indigo-500/30 transition-all active:scale-95 shadow-sm"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-dark-800 border border-dark-700 text-xs font-semibold text-dark-200 hover:text-white transition-all"
               >
                 <Calendar className="w-3.5 h-3.5 text-indigo-400" />
                 <span>{t('billingDecadeBtn')}</span>
@@ -249,9 +246,9 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
                   sound.playClick();
                   navigate('/ai-camera');
                 }}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-rose-500/20 border-2 border-rose-500/50 text-xs font-black text-rose-300 hover:bg-rose-500/30 transition-all active:scale-95 shadow-sm"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-dark-800 border border-dark-700 text-xs font-semibold text-dark-200 hover:text-white transition-all"
               >
-                <Camera className="w-3.5 h-3.5 text-rose-400" />
+                <Camera className="w-3.5 h-3.5 text-emerald-400" />
                 <span>{t('aiTheftAlertsBtn')}</span>
               </button>
 
@@ -260,9 +257,9 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
                   sound.playClick();
                   setIsWizardOpen(true);
                 }}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-800 border-2 border-slate-700 text-xs font-black text-slate-200 hover:text-white hover:border-slate-500 transition-all active:scale-95 shadow-sm"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-dark-800 border border-dark-700 text-xs font-semibold text-dark-200 hover:text-white transition-all"
               >
-                <Settings className="w-3.5 h-3.5 text-amber-400" />
+                <Settings className="w-3.5 h-3.5 text-dark-400" />
                 <span>{t('setupWizardBtn')}</span>
               </button>
             </div>
@@ -274,10 +271,10 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
             {/* Audio Feedback Sound Toggle */}
             <button
               onClick={toggleSound}
-              className={`p-2 rounded-full border-2 transition-all active:scale-95 ${
+              className={`p-2 rounded-lg border transition-all ${
                 isSoundOn
-                  ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-400 shadow-sm'
-                  : 'bg-slate-800 border-slate-700 text-slate-400'
+                  ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-400'
+                  : 'bg-dark-800 border-dark-700 text-dark-400'
               }`}
               title={isSoundOn ? 'साउंड ऑन (Audio Effects ON)' : 'साउंड म्यूट (Audio Effects OFF)'}
             >
@@ -288,41 +285,36 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
             <button
               onClick={handleGlobalRefresh}
               disabled={isRefreshing}
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-dark-800 border border-dark-700 text-xs font-semibold text-dark-200 hover:text-emerald-400 hover:border-emerald-500/40 transition-all active:scale-95 shadow-sm"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-dark-800 border border-dark-700 text-xs font-medium text-dark-200 hover:text-white transition-all"
               title="डेटा रीफ्रेश करें (Refresh Data)"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-emerald-400' : 'text-dark-300'}`} />
+              <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-emerald-400' : 'text-dark-400'}`} />
               <span className="text-[11px] hidden md:inline">{isRefreshing ? 'रीफ्रेश...' : 'रीफ्रेश'}</span>
             </button>
 
             {/* Gemini AI Side Board Trigger */}
             <button
               onClick={() => setIsGeminiChatOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gradient-to-r from-blue-600/20 via-indigo-600/20 to-purple-600/20 border border-indigo-500/40 text-xs font-bold text-indigo-300 hover:text-white transition-all active:scale-95 shadow-sm"
-              title="Google Gemini AI Assistant"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-500/10 border border-indigo-500/25 text-xs font-semibold text-indigo-400 hover:bg-indigo-500/15 transition-all"
+              title="AI Assistant"
             >
-              <Sparkles className="w-3.5 h-3.5 text-indigo-400 animate-pulse" />
-              <span className="text-[11px] hidden xs:inline">Gemini AI</span>
+              <Sparkles className="w-3.5 h-3.5" />
+              <span className="text-[11px] hidden xs:inline">AI सहायक</span>
             </button>
 
             {/* Theme Toggle */}
             <button
               onClick={toggleTheme}
-              className="p-2 sm:px-2.5 sm:py-1.5 rounded-full bg-dark-800 border border-dark-700 text-xs font-semibold text-dark-200 hover:text-white transition-all active:scale-95"
-              title={`${timeScheduleInfo} (Click to toggle)`}
+              className="p-2 sm:px-2.5 sm:py-1.5 rounded-lg bg-dark-800 border border-dark-700 text-xs font-medium text-dark-200 hover:text-white transition-all"
+              title={`${timeScheduleInfo} (बदलने के लिए क्लिक करें)`}
             >
-              {themeMode === 'auto' ? (
-                <span className="flex items-center gap-1 text-[11px] text-teal-400 font-bold">
-                  <Sparkles className="w-3.5 h-3.5 text-teal-400" />
-                  <span className="hidden sm:inline">Auto</span>
-                </span>
-              ) : isDark ? (
-                <span className="flex items-center gap-1 text-[11px] text-indigo-400 font-bold">
+              {isDark ? (
+                <span className="flex items-center gap-1.5 text-[11px] font-semibold">
                   <Moon className="w-3.5 h-3.5 text-indigo-400" />
                   <span className="hidden sm:inline">Dark</span>
                 </span>
               ) : (
-                <span className="flex items-center gap-1 text-[11px] text-amber-400 font-bold">
+                <span className="flex items-center gap-1.5 text-[11px] font-semibold">
                   <Sun className="w-3.5 h-3.5 text-amber-400" />
                   <span className="hidden sm:inline">Light</span>
                 </span>
@@ -332,16 +324,16 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
             {/* Language Toggle */}
             <button
               onClick={toggleLanguage}
-              className="px-2.5 py-1.5 rounded-full bg-dark-800 border border-dark-700 text-xs font-semibold text-dark-200 hover:text-white transition-all active:scale-95"
+              className="px-2.5 py-1.5 rounded-lg bg-dark-800 border border-dark-700 text-xs font-semibold text-dark-200 hover:text-white transition-all"
             >
-              <Globe className="w-3.5 h-3.5 inline mr-1" />
-              <span className="text-[11px] font-bold">{language === 'en' ? 'हिंदी' : 'EN'}</span>
+              <Globe className="w-3.5 h-3.5 inline mr-1 text-dark-400" />
+              <span className="text-[11px]">{language === 'en' ? 'हिंदी' : 'EN'}</span>
             </button>
 
             {/* Logout Button */}
             <button
               onClick={handleLogout}
-              className="p-1.5 rounded-xl text-dark-400 hover:text-rose-400 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/20 transition-all"
+              className="p-1.5 rounded-lg text-dark-400 hover:text-rose-400 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/20 transition-all"
               title={t('logout')}
             >
               <LogOut className="w-4 h-4" />

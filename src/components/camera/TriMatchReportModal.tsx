@@ -52,6 +52,15 @@ const VisitPhoto: React.FC<{ id?: string; inlineImg?: string | null }> = ({ id, 
   );
 };
 
+const FAKE_CYCLE_QUOTES = new Set([
+  'भैया ₹30 का खुला दूध दे दो',
+  'भैया ₹20 का दूध दे दो',
+  'भैया ₹40 का छाछ व दूध पैकेट दे दो',
+  'भैया ₹60 का खुला दूध दे दो',
+  'भैया ₹25 का दही दे दो',
+  'भैया ₹10 का दूध दे दो',
+]);
+
 function buildTriMatchFromTimeline(tlData: any, tiData: any, date: string, startTime: string, endTime: string) {
   const events: any[] = (tlData?.events || []).filter((e: any) => !String(e.image || '').startsWith('SCAN_REQ:') && !String(e.image || '').startsWith('AUDIO_REQ:'));
   const faceEvents = events.filter((e: any) => e.type === 'FACE_VISIT');
@@ -63,18 +72,29 @@ function buildTriMatchFromTimeline(tlData: any, tiData: any, date: string, start
     if (rawNote.startsWith('TRI_JSON:')) {
       try {
         const parsed = JSON.parse(rawNote.slice('TRI_JSON:'.length));
+        const rawQuote = String(parsed.audioQuote || parsed.audio?.[0]?.text || '').trim();
+        const isLegacyFake = FAKE_CYCLE_QUOTES.has(rawQuote) && Number(parsed.pos?.total || 0) === 0;
+        const cleanAudio = isLegacyFake
+          ? []
+          : (parsed.audio || []).filter((a: any) => a?.text && a.text !== 'ऑडियो कैप्चर नहीं हुआ' && !FAKE_CYCLE_QUOTES.has(String(a.text).trim()));
+        const cleanGalla = isLegacyFake ? [] : (parsed.galla || []);
+        const cleanHeard = isLegacyFake ? null : (parsed.heardAmount || null);
+        const cleanVerdict = isLegacyFake ? 'NO_PURCHASE' : (parsed.verdict || 'NO_PURCHASE');
+        const cleanNote = isLegacyFake
+          ? 'ग्राहक काउंटर पर आया (ऑडियो व बिल कैप्चर नहीं हुआ)।'
+          : (parsed.note || 'ग्राहक काउंटर पर आया।');
         return {
           id: parsed.id || `v-${idx}`,
           time: e.time,
           people: e.count || parsed.people || 1,
           image: e.image || null,
           video: { arrived: true, people: e.count || parsed.people || 1 },
-          audio: parsed.audio || [],
+          audio: cleanAudio,
           pos: parsed.pos || { bills: [], total: 0 },
-          galla: parsed.galla || [],
-          heardAmount: parsed.heardAmount || null,
-          verdict: parsed.verdict || 'NO_PURCHASE',
-          note: parsed.note || 'ग्राहक काउंटर पर आया।',
+          galla: cleanGalla,
+          heardAmount: cleanHeard,
+          verdict: cleanVerdict,
+          note: cleanNote,
         };
       } catch { /* fallback below */ }
     }

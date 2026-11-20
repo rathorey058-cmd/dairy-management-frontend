@@ -104,7 +104,7 @@ export const DvrPlaybackModal: React.FC<Props> = ({ isOpen, onClose, cameras }) 
         },
         salesBreakdown: {
           milkSales: {
-            totalLitres: base.salesBreakdown?.milkSales?.totalLitres || Math.round((aiGallaSum / 60) * 10) / 10,
+            totalLitres: base.salesBreakdown?.milkSales?.totalLitres || 0,
           },
         },
         aiSurveillance: {
