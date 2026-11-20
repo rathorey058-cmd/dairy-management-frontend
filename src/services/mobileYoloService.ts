@@ -1,5 +1,4 @@
 import * as ort from 'onnxruntime-web';
-import API from '../api';
 
 // Configure ONNX WASM path (loads wasm binaries efficiently)
 try {
@@ -219,19 +218,17 @@ class MobileYoloEngine {
         const detections = await this.detectFrame(img);
         if (onDetection) onDetection(detections);
 
-        // 1. Footfall analysis
-        const persons = detections.filter(d => d.className === 'person');
-        if (persons.length > this.lastPersonCount) {
-          const arrivals = persons.length - this.lastPersonCount;
-          this.totalFootfallToday += arrivals;
-          console.log(`👤 [Mobile YOLO Footfall]: +${arrivals} new customer! Total today: ${this.totalFootfallToday}`);
-
-          // Push to backend at ₹0 cost
-          API.post('/cameras/evaluate-edge-rules', {
-            footfallArrivals: arrivals
-          }).catch(() => {});
-        }
-        this.lastPersonCount = persons.length;
+        // 1. Footfall analysis (Strict Counter Customer Zone filter + 120s cooldown so sitting staff & street passersby are not counted)
+        const counterCustomers = detections.filter((d) => {
+          if (d.className !== 'person' || d.confidence < 62) return false;
+          const cx = d.box.x + d.box.width / 2;
+          const cy = d.box.y + d.box.height / 2;
+          const ny2 = d.box.y + d.box.height;
+          if (cy > 0.44 || (cx > 0.44 && cy > 0.28)) return false; // sitting staff behind counter
+          if (ny2 < 0.38 || d.box.height < 0.22) return false; // street passersby
+          return cx >= 0.22 && cx <= 0.64 && ny2 >= 0.38 && ny2 <= 0.56;
+        });
+        this.lastPersonCount = counterCustomers.length;
 
       } catch (e) {
         // Continue loop silently
