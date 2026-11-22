@@ -11,6 +11,7 @@ type ZoneType = 'gate' | 'customer' | 'tank' | 'ignore' | 'galla';
 
 interface DrawnZone {
   id: string;
+  backendBlockId?: string;
   cameraKey: string; // camera._id or 'FILE' or 'WEBCAM'
   cameraLabel?: string;
   type: ZoneType;
@@ -176,6 +177,56 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
       localStorage.setItem('dukan_nigrani_zones_v2', JSON.stringify(zones));
     } catch { /* ignore */ }
   }, [zones]);
+
+  // Bidirectional MongoDB Slab Sync: Load saved VisualPairingBlocks on camera load
+  useEffect(() => {
+    if (!cameras || cameras.length === 0) return;
+    let alive = true;
+    API.get('/cameras/pairing-blocks')
+      .then((res) => {
+        if (!alive || !Array.isArray(res.data)) return;
+        const revCat: Record<string, ZoneType> = {
+          GALLA: 'galla',
+          GATE_TRIPWIRE: 'gate',
+          REUSABLE_CAN: 'gate',
+          SHELF: 'tank',
+          MACHINERY: 'customer',
+          CUSTOM: 'customer',
+        };
+        const mapped: DrawnZone[] = [];
+        res.data.forEach((blk: any) => {
+          const cam = cameras.find((c) => Number(c.channel || 1) === Number(blk.cameraChannel || 1));
+          if (!cam || !blk.coordinates) return;
+          const x1 = Math.max(0, Math.min(1, Number(blk.coordinates.x || 0) / 100));
+          const y1 = Math.max(0, Math.min(1, Number(blk.coordinates.y || 0) / 100));
+          const x2 = Math.max(0, Math.min(1, (Number(blk.coordinates.x || 0) + Number(blk.coordinates.width || 20)) / 100));
+          const y2 = Math.max(0, Math.min(1, (Number(blk.coordinates.y || 0) + Number(blk.coordinates.height || 20)) / 100));
+          mapped.push({
+            id: `db-${blk._id}`,
+            backendBlockId: blk._id,
+            cameraKey: cam._id,
+            cameraLabel: `Ch #${cam.channel || 1}`,
+            type: revCat[blk.category] || 'customer',
+            name: blk.name || blk.blockCode || 'स्लैब',
+            x1,
+            y1,
+            x2,
+            y2,
+            capacity: blk.shelfConfig?.capacity || 10,
+            outSign: 1,
+          });
+        });
+        if (mapped.length > 0) {
+          setZones((prev) => {
+            const existingIds = new Set(prev.map((z) => z.backendBlockId || z.id));
+            const additions = mapped.filter((m) => !existingIds.has(m.backendBlockId || m.id));
+            return additions.length > 0 ? [...prev, ...additions] : prev;
+          });
+        }
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [cameras]);
 
   useEffect(() => { dragStateRef.current = dragState; }, [dragState]);
   useEffect(() => { standingRef.current = standingZones; }, [standingZones]);
@@ -857,6 +908,42 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
       setZones((prev) => [...prev, newZone]);
       setZoneNameInput(`${ZONE_META[drawTool].defaultPrefix} ${sameCount + 1}`);
       appendLog(finalName, `${ZONE_META[drawTool].label} जोड़ा गया`, 'info', dragState.cameraLabel);
+
+      // Sync drawn slab to backend VisualPairingBlocks so Edge AI monitors & logs reports for it
+      const matchedCam = cameras.find((c) => c._id === dragState.cameraKey);
+      if (matchedCam && drawTool !== 'ignore') {
+        const catMap: Record<Exclude<ZoneType, 'ignore'>, string> = {
+          gate: 'GATE_TRIPWIRE',
+          galla: 'GALLA',
+          tank: 'SHELF',
+          customer: 'CUSTOM',
+        };
+        const xMin = Math.min(dragState.x1, dragState.x2) * 100;
+        const yMin = Math.min(dragState.y1, dragState.y2) * 100;
+        const wPct = Math.max(4, Math.abs(dragState.x2 - dragState.x1) * 100);
+        const hPct = Math.max(4, Math.abs(dragState.y2 - dragState.y1) * 100);
+        API.post('/cameras/pairing-blocks', {
+          blockCode: `SLAB-CH${matchedCam.channel || 1}-${Date.now().toString(36).slice(-4).toUpperCase()}`,
+          name: `${finalName} (Ch#${matchedCam.channel || 1})`,
+          category: catMap[drawTool],
+          color: ZONE_META[drawTool].color,
+          cameraChannel: matchedCam.channel || 1,
+          coordinates: {
+            x: Math.round(xMin),
+            y: Math.round(yMin),
+            width: Math.round(wPct),
+            height: Math.round(hPct),
+          },
+          shelfConfig: drawTool === 'tank' ? { capacity: parseInt(tankCapacityInput, 10) || 10, pickCount: 0 } : undefined,
+        })
+          .then((res) => {
+            const savedId = res.data?.block?._id || res.data?._id;
+            if (savedId) {
+              setZones((prev) => prev.map((item) => (item.id === newZone.id ? { ...item, backendBlockId: savedId } : item)));
+            }
+          })
+          .catch(() => {});
+      }
     }
     setDragState(null);
   };
@@ -1446,7 +1533,12 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
                       )}
                       <button
                         type="button"
-                        onClick={() => setZones((prev) => prev.filter((item) => item.id !== z.id))}
+                        onClick={() => {
+                          if (z.backendBlockId) {
+                            API.delete(`/cameras/pairing-blocks/${z.backendBlockId}`).catch(() => {});
+                          }
+                          setZones((prev) => prev.filter((item) => item.id !== z.id));
+                        }}
                         className="px-2 py-1 rounded-lg bg-dark-950 border border-dark-700 text-dark-300 hover:text-rose-400 hover:border-rose-500/40 font-semibold"
                       >
                         हटाएँ

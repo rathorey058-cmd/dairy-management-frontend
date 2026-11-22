@@ -19,6 +19,7 @@ export interface ParsedCustomerVisit {
   time: string;
   people: number;
   image: string | null;
+  hasImage: boolean;
   requestedItem: string;
   audioQuote: string;
   givenItem: string;
@@ -46,7 +47,8 @@ export function parseVisitsFromTimeline(tlData: any): ParsedCustomerVisit[] {
 
   return events.map((e: any, idx: number) => {
     const rawNote = String(e.note || '');
-    const hasImg = Boolean(e.image && String(e.image).startsWith('data:image'));
+    const inlineImg = e.image && String(e.image).startsWith('data:image') ? String(e.image) : null;
+    const hasImg = Boolean(inlineImg || e.hasImage);
 
     if (rawNote.startsWith('TRI_JSON:')) {
       try {
@@ -66,10 +68,11 @@ export function parseVisitsFromTimeline(tlData: any): ParsedCustomerVisit[] {
             (hasImg ? 'काउंटर पर ग्राहक देखा गया (दिया गया सामान कैप्चर नहीं हुआ)' : 'वीडियो फुटेज कैप्चर नहीं हुआ');
           const gallaDep = Boolean(p.gallaDeposited && (amt > 0 || (p.galla && p.galla.length > 0)));
           return {
-            id: p.id || `visit-${idx}`,
+            id: e.id || p.id || `visit-${idx}`,
             time: e.time,
             people: Number(e.count || p.people || 1),
-            image: e.image || null,
+            image: inlineImg,
+            hasImage: hasImg,
             requestedItem: reqItem,
             audioQuote: quote,
             givenItem: given,
@@ -93,10 +96,11 @@ export function parseVisitsFromTimeline(tlData: any): ParsedCustomerVisit[] {
     }
 
     return {
-      id: `visit-${idx}`,
+      id: e.id || `visit-${idx}`,
       time: e.time,
       people: Number(e.count || 1),
-      image: e.image || null,
+      image: inlineImg,
+      hasImage: hasImg,
       requestedItem: 'ऑडियो कैप्चर नहीं हुआ',
       audioQuote: 'ऑडियो कैप्चर नहीं हुआ',
       givenItem: hasImg
@@ -119,11 +123,36 @@ export const QuickReportModal: React.FC<Props> = ({ isOpen, onClose }) => {
   const [end, setEnd] = useState('22:00');
   const [data, setData] = useState<any | null>(null);
   const [visits, setVisits] = useState<ParsedCustomerVisit[]>([]);
+  const [slabEvents, setSlabEvents] = useState<any[]>([]);
+  const [slabFilter, setSlabFilter] = useState<string>('ALL');
   const [openPhotoId, setOpenPhotoId] = useState<string | null>(null);
+  const [lazyPhotos, setLazyPhotos] = useState<Record<string, string>>({});
+  const [loadingPhotoId, setLoadingPhotoId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [scanningSlab, setScanningSlab] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [showTri, setShowTri] = useState(false);
+
+  const togglePhoto = async (photoKey: string, docId?: string, inlineImg?: string | null) => {
+    if (openPhotoId === photoKey) {
+      setOpenPhotoId(null);
+      return;
+    }
+    setOpenPhotoId(photoKey);
+    if (inlineImg || lazyPhotos[photoKey] || !docId || docId.startsWith('visit-') || docId.startsWith('slab-')) {
+      return;
+    }
+    setLoadingPhotoId(photoKey);
+    try {
+      const r = await API.get(`/cameras/audit-log/${docId}/image`, { responseType: 'blob' });
+      const blobUrl = URL.createObjectURL(r.data);
+      setLazyPhotos((prev) => ({ ...prev, [photoKey]: blobUrl }));
+    } catch {
+      /* image unavailable */
+    } finally {
+      setLoadingPhotoId(null);
+    }
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -131,10 +160,25 @@ export const QuickReportModal: React.FC<Props> = ({ isOpen, onClose }) => {
     try {
       const [sumRes, tlRes] = await Promise.all([
         API.get('/cameras/reports/daily-summary', { params: { date, startTime: start, endTime: end } }),
-        API.get('/cameras/playback/timeline', { params: { date, startTime: start, endTime: end } }).catch(() => ({ data: null })),
+        API.get('/cameras/playback/timeline', { params: { date, startTime: start, endTime: end } }).catch((tlErr) => {
+          console.error('Timeline load error:', tlErr);
+          return { data: null, _err: tlErr };
+        }),
       ]);
       setData(sumRes.data);
+      if (!tlRes?.data) {
+        setErr('टाइमलाइन लोड होने में समस्या आई — कृपया दुबारा "देखें" दबाएँ।');
+      }
       setVisits(parseVisitsFromTimeline(tlRes.data));
+      const allEv: any[] = tlRes.data?.events || [];
+      setSlabEvents(
+        allEv.filter(
+          (e: any) =>
+            e.type !== 'FACE_VISIT' &&
+            !String(e.image || '').startsWith('SCAN_REQ:') &&
+            !String(e.image || '').startsWith('AUDIO_REQ:')
+        )
+      );
     } catch (e: any) {
       setErr(e.response?.data?.message || 'रिपोर्ट लोड नहीं हो सकी।');
     } finally {
@@ -366,10 +410,10 @@ export const QuickReportModal: React.FC<Props> = ({ isOpen, onClose }) => {
                             <div className={v.videoCaptured ? 'text-white font-semibold' : 'text-amber-300/90 font-semibold'}>
                               {v.givenItem}
                             </div>
-                            {v.image ? (
+                            {v.hasImage ? (
                               <button
                                 type="button"
-                                onClick={() => setOpenPhotoId(openPhotoId === v.id ? null : v.id)}
+                                onClick={() => togglePhoto(v.id, v.id, v.image)}
                                 className="text-[10px] text-indigo-400 hover:text-indigo-300 font-bold flex items-center gap-1 pt-0.5"
                               >
                                 <Eye className="w-3 h-3" />
@@ -409,13 +453,19 @@ export const QuickReportModal: React.FC<Props> = ({ isOpen, onClose }) => {
                           </div>
                         </div>
 
-                        {openPhotoId === v.id && v.image && (
+                        {openPhotoId === v.id && (
                           <div className="pt-2 border-t border-dark-800">
-                            <img
-                              src={v.image}
-                              alt="Customer Visit Snapshot"
-                              className="max-h-52 rounded-xl border border-dark-700 mx-auto object-contain"
-                            />
+                            {loadingPhotoId === v.id ? (
+                              <div className="text-center py-4 text-[11px] text-dark-400">कैमरा फोटो लोड हो रही है...</div>
+                            ) : (v.image || lazyPhotos[v.id]) ? (
+                              <img
+                                src={v.image || lazyPhotos[v.id]}
+                                alt="Customer Visit Snapshot"
+                                className="max-h-52 rounded-xl border border-dark-700 mx-auto object-contain"
+                              />
+                            ) : (
+                              <div className="text-center py-3 text-[11px] text-dark-400">फोटो उपलब्ध नहीं</div>
+                            )}
                           </div>
                         )}
                       </div>
@@ -423,6 +473,84 @@ export const QuickReportModal: React.FC<Props> = ({ isOpen, onClose }) => {
                   </div>
                 )}
               </div>
+
+              {/* All-Camera & Slab Activity Reports */}
+              {slabEvents.length > 0 && (
+                <div className="space-y-2.5 pt-2 border-t border-dark-800">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="text-xs font-black text-emerald-300 flex items-center gap-1.5">
+                      📹 सभी कैमरे व स्लैब गतिविधि ({slabEvents.length})
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1 text-[10px]">
+                      {(['ALL', 'Ch1', 'Ch2', 'Ch3', 'Ch4', 'Ch5'] as const).map((ch) => (
+                        <button
+                          key={ch}
+                          type="button"
+                          onClick={() => setSlabFilter(ch)}
+                          className={`px-2 py-0.5 rounded-md font-bold border transition-colors ${
+                            slabFilter === ch
+                              ? 'bg-emerald-600 text-white border-emerald-500'
+                              : 'bg-dark-900 text-dark-300 border-dark-700 hover:text-white'
+                          }`}
+                        >
+                          {ch === 'ALL' ? 'सभी' : ch}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    {slabEvents
+                      .filter((ev: any) => slabFilter === 'ALL' || String(ev.note || '').includes(slabFilter))
+                      .slice(0, 40)
+                      .map((ev: any, idx: number) => (
+                      <div
+                        key={ev.id || `slab-${idx}`}
+                        className="bg-dark-900 border border-dark-800 rounded-xl p-2.5 flex items-center justify-between gap-3 text-xs"
+                      >
+                        <div className="min-w-0 space-y-0.5">
+                          <div className="flex items-center gap-2">
+                            <span className="px-2 py-0.5 rounded bg-indigo-500/15 text-indigo-300 font-mono font-bold text-[11px]">
+                              ⏰ {hhmm(ev.time)}
+                            </span>
+                            <span className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 font-bold text-[10px]">
+                              {ev.type}
+                            </span>
+                          </div>
+                          <div className="text-white font-semibold truncate">{ev.note || 'स्लैब में गतिविधि'}</div>
+                        </div>
+                        {(ev.hasImage || (ev.image && String(ev.image).startsWith('data:image'))) && (
+                          <button
+                            type="button"
+                            onClick={() => togglePhoto(`slab-${ev.id || idx}`, ev.id, ev.image)}
+                            className="shrink-0 px-2.5 py-1 rounded-lg bg-dark-800 text-indigo-300 hover:text-white text-[11px] font-bold flex items-center gap-1"
+                          >
+                            <Eye className="w-3 h-3" /> फोटो
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    {slabEvents.map((ev: any, idx: number) => {
+                      const skey = `slab-${ev.id || idx}`;
+                      const sImg = ev.image || lazyPhotos[skey];
+                      return openPhotoId === skey ? (
+                        <div key={`slab-img-${idx}`} className="p-2 bg-dark-900 rounded-xl border border-dark-700">
+                          {loadingPhotoId === skey ? (
+                            <div className="text-center py-4 text-[11px] text-dark-400">फोटो लोड हो रही है...</div>
+                          ) : sImg ? (
+                            <img
+                              src={sImg}
+                              alt="Slab Activity"
+                              className="max-h-52 rounded-lg mx-auto object-contain"
+                            />
+                          ) : (
+                            <div className="text-center py-3 text-[11px] text-dark-400">फोटो उपलब्ध नहीं</div>
+                          )}
+                        </div>
+                      ) : null;
+                    })}
+                  </div>
+                </div>
+              )}
             </>
           )}
         </div>

@@ -84,7 +84,7 @@ function buildTriMatchFromTimeline(tlData: any, tiData: any, date: string, start
           ? 'ग्राहक काउंटर पर आया (ऑडियो व बिल कैप्चर नहीं हुआ)।'
           : (parsed.note || 'ग्राहक काउंटर पर आया।');
         return {
-          id: parsed.id || `v-${idx}`,
+          id: e.id || parsed.id || `v-${idx}`,
           time: e.time,
           people: e.count || parsed.people || 1,
           image: e.image || null,
@@ -138,7 +138,7 @@ function buildTriMatchFromTimeline(tlData: any, tiData: any, date: string, start
     }
 
     return {
-      id: `v-${idx}`,
+      id: e.id || `v-${idx}`,
       time: e.time,
       people: e.count || 1,
       image: e.image || null,
