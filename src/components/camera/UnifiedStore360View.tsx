@@ -117,6 +117,205 @@ const CAM_3D_ANCHORS: Record<number, {
   },
 };
 
+/** Procedural Marble/Ceramic Dairy Tile Floor Texture */
+function createMarbleTileTexture(isRealistic: boolean): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = 512;
+  c.height = 512;
+  const ctx = c.getContext('2d')!;
+  ctx.fillStyle = isRealistic ? '#cbd5e1' : '#0f172a';
+  ctx.fillRect(0, 0, 512, 512);
+
+  const tiles = 8;
+  const step = 512 / tiles;
+  for (let y = 0; y < tiles; y++) {
+    for (let x = 0; x < tiles; x++) {
+      const alt = (x + y) % 2 === 0;
+      ctx.fillStyle = isRealistic
+        ? alt ? '#e2e8f0' : '#cbd5e1'
+        : alt ? '#0f172a' : '#131c31';
+      ctx.fillRect(x * step + 2, y * step + 2, step - 4, step - 4);
+    }
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(3, 3);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/** Procedural Asphalt Street Texture with Yellow Dashed Divider & Crosswalk */
+function createAsphaltRoadTexture(isRealistic: boolean): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = 1024;
+  c.height = 256;
+  const ctx = c.getContext('2d')!;
+  ctx.fillStyle = isRealistic ? '#1e2430' : '#090d16';
+  ctx.fillRect(0, 0, 1024, 256);
+
+  // Subtle asphalt grain
+  for (let i = 0; i < 1800; i++) {
+    ctx.fillStyle = i % 2 === 0 ? 'rgba(255,255,255,0.035)' : 'rgba(0,0,0,0.06)';
+    ctx.fillRect(Math.random() * 1024, Math.random() * 256, 2, 2);
+  }
+
+  // Sidewalk top & bottom edge lines
+  ctx.fillStyle = isRealistic ? '#94a3b8' : '#06b6d4';
+  ctx.fillRect(0, 8, 1024, 5);
+  ctx.fillRect(0, 243, 1024, 5);
+
+  // Center yellow dashed road divider
+  ctx.fillStyle = isRealistic ? '#facc15' : '#0ea5e9';
+  for (let x = 20; x < 1024; x += 80) {
+    ctx.fillRect(x, 124, 44, 8);
+  }
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/** Procedural Hindi Shop Signboard Texture */
+function createShopSignboardTexture(): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = 1024;
+  c.height = 192;
+  const ctx = c.getContext('2d')!;
+  const grad = ctx.createLinearGradient(0, 0, 1024, 0);
+  grad.addColorStop(0, '#0f172a');
+  grad.addColorStop(0.5, '#1e3a8a');
+  grad.addColorStop(1, '#0f172a');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 1024, 192);
+
+  ctx.strokeStyle = '#38bdf8';
+  ctx.lineWidth = 6;
+  ctx.strokeRect(6, 6, 1012, 180);
+
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 48px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('🥛 श्री कृष्णा डेयरी एवं मिल्क पार्लर', 512, 86);
+
+  ctx.fillStyle = '#34d399';
+  ctx.font = 'bold 30px monospace';
+  ctx.fillText('LIVE 3D AI DIGITAL TWIN • 5-CAMERA SURVEILLANCE', 512, 144);
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/** Build a Floating 3D Overhead Tag + Live Camera Photo Cutout Sprite for a 3D Person/Vehicle */
+function buildOverheadCardSprite(ent: Tracked3DEntity, cutImg?: HTMLImageElement): THREE.Sprite {
+  const c = document.createElement('canvas');
+  c.width = 340;
+  c.height = 140;
+  const ctx = c.getContext('2d')!;
+
+  // Rounded glass pill card
+  ctx.fillStyle = 'rgba(9, 14, 26, 0.88)';
+  ctx.beginPath();
+  ctx.roundRect(4, 4, 332, 132, 22);
+  ctx.fill();
+
+  const hexCol = '#' + ent.color.toString(16).padStart(6, '0');
+  ctx.strokeStyle = hexCol;
+  ctx.lineWidth = 4;
+  ctx.stroke();
+
+  // Draw live camera cutout thumbnail on left if available
+  let textStartX = 20;
+  if (cutImg) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.roundRect(14, 14, 92, 112, 14);
+    ctx.clip();
+    ctx.drawImage(cutImg, 14, 14, 92, 112);
+    ctx.restore();
+    textStartX = 120;
+  }
+
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 23px sans-serif';
+  ctx.fillText(ent.label.slice(0, 22), textStartX, 52);
+
+  ctx.fillStyle = hexCol;
+  ctx.font = 'bold 20px monospace';
+  ctx.fillText(`3D: (${ent.targetX.toFixed(1)}m, ${ent.targetZ.toFixed(1)}m)`, textStartX, 88);
+
+  ctx.fillStyle = '#34d399';
+  ctx.font = 'bold 18px sans-serif';
+  ctx.fillText(`● LIVE YOLO ${ent.confidence}%`, textStartX, 118);
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
+  const sp = new THREE.Sprite(mat);
+  sp.scale.set(1.85, 0.76, 1);
+  sp.position.set(0, 2.25, 0);
+  sp.name = 'overheadCard';
+  return sp;
+}
+
+/** Build a Live 3D Colored Volumetric Point-Cloud Splat from a Camera Frame (Gaussian / LiDAR style 3D points) */
+function createPointCloudFromImage(
+  img: HTMLImageElement,
+  cfg: typeof CAM_3D_ANCHORS[number]
+): THREE.Points {
+  const cols = 64;
+  const rows = 44;
+  const c = document.createElement('canvas');
+  c.width = cols;
+  c.height = rows;
+  const ctx = c.getContext('2d')!;
+  ctx.drawImage(img, 0, 0, cols, rows);
+  const data = ctx.getImageData(0, 0, cols, rows).data;
+
+  const numPts = cols * rows;
+  const positions = new Float32Array(numPts * 3);
+  const colors = new Float32Array(numPts * 3);
+
+  const [px, , pz] = cfg.floorPatchPos;
+  const [sw, sh] = cfg.floorPatchSize;
+
+  let k = 0;
+  for (let r = 0; r < rows; r++) {
+    for (let col = 0; col < cols; col++) {
+      const idx = (r * cols + col) * 4;
+      const cr = data[idx] / 255;
+      const cg = data[idx + 1] / 255;
+      const cb = data[idx + 2] / 255;
+      const lum = cr * 0.299 + cg * 0.587 + cb * 0.114;
+
+      const u = col / (cols - 1) - 0.5;
+      const v = r / (rows - 1) - 0.5;
+
+      // Project into 3D volumetric space (floor + vertical depth relief up to 1.85m)
+      positions[k * 3] = px + u * sw;
+      positions[k * 3 + 1] = 0.08 + lum * 1.45 * (1 - Math.abs(v) * 0.4);
+      positions[k * 3 + 2] = pz + v * sh;
+
+      colors[k * 3] = Math.min(1, cr * 1.15);
+      colors[k * 3 + 1] = Math.min(1, cg * 1.15);
+      colors[k * 3 + 2] = Math.min(1, cb * 1.15);
+      k++;
+    }
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  const mat = new THREE.PointsMaterial({
+    size: 0.14,
+    vertexColors: true,
+    transparent: true,
+    opacity: 0.92,
+  });
+  return new THREE.Points(geo, mat);
+}
+
 function project2DDetectionTo3DWorld(det: DetectedObject, channel: number): {
   x: number;
   z: number;
@@ -156,7 +355,7 @@ function project2DDetectionTo3DWorld(det: DetectedObject, channel: number): {
         x: 0.5 + (cx - 0.5) * 4.5,
         z: 1.5 + (cy - 0.5) * 1.8,
         kind: 'STAFF',
-        label: `👨‍💼 काउंटर स्टाफ (${det.confidence}%)`,
+        label: `👨‍💼 काउंटर स्टाफ`,
         color: 0x6366f1,
       };
     }
@@ -165,7 +364,7 @@ function project2DDetectionTo3DWorld(det: DetectedObject, channel: number): {
         x: (cx - 0.5) * 8.0,
         z: 6.8 + (0.4 - ny2) * 4.0,
         kind: 'PASSERBY',
-        label: `🚶 राहगीर (${det.confidence}%)`,
+        label: `🚶 राहगीर`,
         color: 0x94a3b8,
       };
     }
@@ -173,7 +372,7 @@ function project2DDetectionTo3DWorld(det: DetectedObject, channel: number): {
       x: (cx - 0.5) * 4.8,
       z: 4.3 + (0.5 - ny2) * 1.6,
       kind: 'CUSTOMER',
-      label: `👤 ग्राहक @ काउंटर (${det.confidence}%)`,
+      label: `👤 ग्राहक @ काउंटर`,
       color: 0x10b981,
     };
   }
@@ -183,7 +382,7 @@ function project2DDetectionTo3DWorld(det: DetectedObject, channel: number): {
       x: -2.5 + cx * 5.0,
       z: -2.2 + cy * 3.2,
       kind: 'STAFF',
-      label: `👨‍💼 गल्ला/फ्रीजर ज़ोन (${det.confidence}%)`,
+      label: `👨‍💼 गल्ला/फ्रीजर ज़ोन`,
       color: 0xf43f5e,
     };
   }
@@ -193,7 +392,7 @@ function project2DDetectionTo3DWorld(det: DetectedObject, channel: number): {
       x: -2.2 + cx * 4.8,
       z: -3.5 + cy * 2.8,
       kind: 'STAFF',
-      label: `👤 आंतरिक रैक ज़ोन (${det.confidence}%)`,
+      label: `👤 आंतरिक रैक ज़ोन`,
       color: 0x38bdf8,
     };
   }
@@ -203,7 +402,7 @@ function project2DDetectionTo3DWorld(det: DetectedObject, channel: number): {
       x: 3.2 + (cx - 0.5) * 6.0,
       z: 6.2 + (1 - cy) * 3.5,
       kind: ny2 > 0.48 ? 'CUSTOMER' : 'PASSERBY',
-      label: ny2 > 0.48 ? `🚶 गेट प्रवेश (${det.confidence}%)` : `🚶 सड़क राहगीर (${det.confidence}%)`,
+      label: ny2 > 0.48 ? `🚶 गेट प्रवेश` : `🚶 सड़क राहगीर`,
       color: ny2 > 0.48 ? 0x10b981 : 0x94a3b8,
     };
   }
@@ -212,12 +411,11 @@ function project2DDetectionTo3DWorld(det: DetectedObject, channel: number): {
     x: -4.2 + (cx - 0.5) * 6.0,
     z: 6.5 + (1 - cy) * 3.5,
     kind: 'PASSERBY',
-    label: `🚶 गली/सड़क (${det.confidence}%)`,
+    label: `🚶 गली/सड़क`,
     color: 0xf59e0b,
   };
 }
 
-/** Crop the detected bounding box from the live camera image for photorealistic 3D spatial cutout */
 function cropDetectionToDataUrl(img: HTMLImageElement, det: DetectedObject): string | undefined {
   try {
     const c = document.createElement('canvas');
@@ -230,14 +428,13 @@ function cropDetectionToDataUrl(img: HTMLImageElement, det: DetectedObject): str
     const sw = Math.max(16, Math.min(img.naturalWidth - sx, det.box.width * img.naturalWidth));
     const sh = Math.max(16, Math.min(img.naturalHeight - sy, det.box.height * img.naturalHeight));
     ctx.drawImage(img, sx, sy, sw, sh, 0, 0, 96, 128);
-    return c.toDataURL('image/jpeg', 0.8);
+    return c.toDataURL('image/jpeg', 0.82);
   } catch {
     return undefined;
   }
 }
 
-/** Displace a subdivided 3D floor patch's vertices using real camera pixel luminance (Photogrammetric 3D Relief) */
-function displaceMeshFromImage(mesh: THREE.Mesh, img: HTMLImageElement, maxHeight = 0.55) {
+function displaceMeshFromImage(mesh: THREE.Mesh, img: HTMLImageElement, maxHeight = 0.65) {
   try {
     const geo = mesh.geometry as THREE.PlaneGeometry;
     const posAttr = geo.attributes.position;
@@ -255,7 +452,6 @@ function displaceMeshFromImage(mesh: THREE.Mesh, img: HTMLImageElement, maxHeigh
       const v = Math.min(47, Math.max(0, Math.floor((0.5 - (posAttr.getY(i) / geo.parameters.height)) * 47)));
       const pIdx = (v * 48 + u) * 4;
       const lum = (pixels[pIdx] * 0.299 + pixels[pIdx + 1] * 0.587 + pixels[pIdx + 2] * 0.114) / 255;
-      // Edge/object relief along local Z (which points UP in world space after rotation.x = -PI/2)
       const edgeFade = Math.sin((u / 47) * Math.PI) * Math.sin((v / 47) * Math.PI);
       posAttr.setZ(i, lum * maxHeight * edgeFade);
     }
@@ -276,10 +472,11 @@ export const UnifiedStore360View: React.FC<Props> = ({
 }) => {
   const mountRef = useRef<HTMLDivElement | null>(null);
 
-  // Two distinct 3D visual engines:
-  // 1. 'REALISTIC_3D': Photo-Realistic 3D Drone Reality View (Live camera textures projected on 3D ground with 3D depth relief, realistic daylight & realistic humans/cutouts)
-  // 2. 'CYBER_RADAR': Dark-mode glowing cyan/neon Tesla FSD Cyber Radar View
-  const [visualStyle, setVisualStyle] = useState<'REALISTIC_3D' | 'CYBER_RADAR'>('REALISTIC_3D');
+  // 3 Selectable 3D Realism Modes:
+  // 1. 'REALISTIC_3D': Ultra-Realistic Architectural PBR Dairy + Live Ground Depth Mesh + Animated Humans with Live Photo Cards
+  // 2. 'POINT_CLOUD_3D': Live 3D Volumetric Point-Cloud / Gaussian-Style Depth Splat reconstructed from all 5 DVR cameras
+  // 3. 'CYBER_RADAR': Classic Tesla FSD Dark Neon Radar View
+  const [visualStyle, setVisualStyle] = useState<'REALISTIC_3D' | 'POINT_CLOUD_3D' | 'CYBER_RADAR'>('REALISTIC_3D');
   const [autoRotate, setAutoRotate] = useState<boolean>(true);
   const [show3DVideoWalls, setShow3DVideoWalls] = useState<boolean>(true);
   const [showLaserCones, setShowLaserCones] = useState<boolean>(true);
@@ -289,11 +486,11 @@ export const UnifiedStore360View: React.FC<Props> = ({
   const [yoloScanChannel, setYoloScanChannel] = useState<number>(1);
 
   const orbitRef = useRef({
-    theta: 0.24,
-    phi: 0.66,
-    radius: 14.8,
+    theta: 0.22,
+    phi: 0.65,
+    radius: 14.5,
     targetX: 0,
-    targetY: 0.6,
+    targetY: 0.65,
     targetZ: 1.4,
     isDragging: false,
     lastX: 0,
@@ -304,9 +501,9 @@ export const UnifiedStore360View: React.FC<Props> = ({
     {
       id: 'init-counter-staff',
       kind: 'STAFF',
-      label: '👨‍💼 काउंटर डेस्क (Ch#1)',
+      label: '👨‍💼 काउंटर डेस्क [Ch#1]',
       channel: 1,
-      confidence: 94,
+      confidence: 95,
       targetX: 1.7,
       targetZ: 2.0,
       curX: 1.7,
@@ -317,9 +514,9 @@ export const UnifiedStore360View: React.FC<Props> = ({
     {
       id: 'init-customer-1',
       kind: 'CUSTOMER',
-      label: '👤 ग्राहक @ दूध पतीला (Ch#1)',
+      label: '👤 ग्राहक @ दूध पतीला [Ch#1]',
       channel: 1,
-      confidence: 91,
+      confidence: 92,
       targetX: 0.2,
       targetZ: 4.3,
       curX: 0.2,
@@ -330,9 +527,9 @@ export const UnifiedStore360View: React.FC<Props> = ({
     {
       id: 'init-staff-2',
       kind: 'STAFF',
-      label: '👨‍💼 स्टाफ @ डीप फ्रीजर (Ch#2)',
+      label: '👨‍🔧 स्टाफ @ डीप फ्रीजर [Ch#2]',
       channel: 2,
-      confidence: 88,
+      confidence: 89,
       targetX: -2.6,
       targetZ: -0.6,
       curX: -2.6,
@@ -345,6 +542,7 @@ export const UnifiedStore360View: React.FC<Props> = ({
   const videoTexturesRef = useRef<Record<number, THREE.Texture>>({});
   const videoMeshesRef = useRef<Record<number, THREE.Mesh>>({});
   const floorPatchMeshesRef = useRef<Record<number, THREE.Mesh>>({});
+  const pointCloudGroupRef = useRef<THREE.Group | null>(null);
   const coneMeshesRef = useRef<Record<number, THREE.Mesh>>({});
   const dynamicGroupRef = useRef<THREE.Group | null>(null);
   const blocksGroupRef = useRef<THREE.Group | null>(null);
@@ -359,27 +557,27 @@ export const UnifiedStore360View: React.FC<Props> = ({
       o.targetX = 0;
       o.targetZ = 1.2;
     } else if (preset === 'TESLA_ISO') {
-      o.theta = 0.28;
-      o.phi = 0.68;
+      o.theta = 0.24;
+      o.phi = 0.66;
       o.radius = 14.5;
       o.targetX = 0;
       o.targetZ = 1.4;
     } else if (preset === 'COUNTER') {
       o.theta = 0.05;
-      o.phi = 0.82;
-      o.radius = 8.8;
+      o.phi = 0.80;
+      o.radius = 8.6;
       o.targetX = 0.2;
       o.targetZ = 2.8;
     } else if (preset === 'STREET') {
       o.theta = -0.32;
-      o.phi = 0.74;
+      o.phi = 0.72;
       o.radius = 16.0;
       o.targetX = 0;
       o.targetZ = 4.5;
     }
   }, []);
 
-  // Load Live DVR Camera Textures into BOTH the 3D Wall Screens AND the 3D Ground-Projected Photogrammetric Relief Meshes
+  // Load Live DVR Camera Textures into 3D Wall Screens, 3D Ground Relief Meshes, AND 3D Volumetric Point-Cloud Splats
   useEffect(() => {
     const loader = new THREE.TextureLoader();
     cameras.forEach((cam, idx) => {
@@ -407,7 +605,20 @@ export const UnifiedStore360View: React.FC<Props> = ({
             floorPatch.material.color.setHex(0xffffff);
             floorPatch.material.needsUpdate = true;
             if (tex.image instanceof HTMLImageElement) {
-              displaceMeshFromImage(floorPatch, tex.image, visualStyle === 'REALISTIC_3D' ? 0.55 : 0.15);
+              displaceMeshFromImage(floorPatch, tex.image, visualStyle === 'REALISTIC_3D' ? 0.65 : 0.18);
+            }
+          }
+
+          // Update 3D Volumetric Point Cloud if in POINT_CLOUD_3D mode
+          if (visualStyle === 'POINT_CLOUD_3D' && pointCloudGroupRef.current && tex.image instanceof HTMLImageElement) {
+            const pcGrp = pointCloudGroupRef.current;
+            const prevPc = pcGrp.getObjectByName(`pc-ch-${ch}`);
+            if (prevPc) pcGrp.remove(prevPc);
+            const cfg = CAM_3D_ANCHORS[ch];
+            if (cfg) {
+              const pts = createPointCloudFromImage(tex.image, cfg);
+              pts.name = `pc-ch-${ch}`;
+              pcGrp.add(pts);
             }
           }
 
@@ -428,7 +639,6 @@ export const UnifiedStore360View: React.FC<Props> = ({
     });
   }, [show3DVideoWalls, showLaserCones]);
 
-  // Rebuild 3D Volumetric AI Pairing Zones
   useEffect(() => {
     const grp = blocksGroupRef.current;
     if (!grp) return;
@@ -470,7 +680,7 @@ export const UnifiedStore360View: React.FC<Props> = ({
     });
   }, [pairingBlocks, visualStyle]);
 
-  // Multi-Camera Live YOLOv8 3D Reconstruction + Live Photo-Cutout Extraction
+  // Multi-Camera Live YOLOv8 3D Reconstruction + Photo-Cutout Extraction
   useEffect(() => {
     let cancelled = false;
     let step = 0;
@@ -545,100 +755,118 @@ export const UnifiedStore360View: React.FC<Props> = ({
     };
   }, [cameras, gridSnapshots]);
 
-  // Initialize Three.js WebGL 3D Scene (Rebuilds when switching between REALISTIC_3D and CYBER_RADAR)
+  // Initialize Three.js WebGL 3D Scene
   useEffect(() => {
     const container = mountRef.current;
     if (!container) return;
 
     const isRealistic = visualStyle === 'REALISTIC_3D';
+    const isPointCloud = visualStyle === 'POINT_CLOUD_3D';
     const width = container.clientWidth || 900;
-    const height = 450;
+    const height = 470;
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(isRealistic ? 0x111827 : 0x060a12);
-    scene.fog = new THREE.FogExp2(isRealistic ? 0x111827 : 0x060a12, isRealistic ? 0.014 : 0.022);
+    scene.background = new THREE.Color(isRealistic ? 0x0f172a : 0x050811);
+    scene.fog = new THREE.FogExp2(isRealistic ? 0x0f172a : 0x050811, isRealistic ? 0.012 : 0.02);
 
-    const camera = new THREE.PerspectiveCamera(44, width / height, 0.1, 120);
+    const camera = new THREE.PerspectiveCamera(43, width / height, 0.1, 130);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     renderer.setSize(width, height);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = isRealistic ? 1.25 : 1.05;
     container.innerHTML = '';
     container.appendChild(renderer.domElement);
 
-    // Lighting (Natural Daylight Showroom in REALISTIC_3D vs Neon Cyan in CYBER_RADAR)
+    // Rich Multi-Point Lighting (Warm Showroom + Daylight Sun)
     const hemiLight = new THREE.HemisphereLight(
-      isRealistic ? 0xf8fafc : 0xdbeafe,
+      isRealistic ? 0xffffff : 0xdbeafe,
       isRealistic ? 0x334155 : 0x0f172a,
-      isRealistic ? 1.85 : 1.35
+      isRealistic ? 1.9 : 1.35
     );
     scene.add(hemiLight);
 
-    const sunLight = new THREE.DirectionalLight(isRealistic ? 0xfffbeb : 0x38bdf8, isRealistic ? 2.2 : 1.8);
-    sunLight.position.set(12, 22, 14);
+    const sunLight = new THREE.DirectionalLight(isRealistic ? 0xfffbeb : 0x38bdf8, isRealistic ? 2.4 : 1.8);
+    sunLight.position.set(14, 24, 16);
     sunLight.castShadow = true;
     scene.add(sunLight);
 
-    const counterWarmLight = new THREE.PointLight(isRealistic ? 0xfef3c7 : 0x10b981, isRealistic ? 2.5 : 2.2, 16);
-    counterWarmLight.position.set(0, 4.0, 2.5);
-    scene.add(counterWarmLight);
+    const counterSpot = new THREE.PointLight(isRealistic ? 0xfef3c7 : 0x10b981, isRealistic ? 2.8 : 2.2, 18);
+    counterSpot.position.set(0, 4.2, 2.8);
+    scene.add(counterSpot);
 
-    // 1. GROUND & ROAD GEOMETRY
-    const gridHelper = new THREE.GridHelper(
-      36,
-      36,
-      isRealistic ? 0x475569 : 0x0ea5e9,
-      isRealistic ? 0x1e293b : 0x1e293b
-    );
-    gridHelper.position.y = 0.008;
+    const bhattiGlow = new THREE.PointLight(0xf97316, isRealistic ? 2.2 : 1.0, 7);
+    bhattiGlow.position.set(4.1, 0.8, -1.2);
+    scene.add(bhattiGlow);
+
+    // 1. PROCEDURAL MARBLE TILE FLOOR & ASPHALT STREET
+    const gridHelper = new THREE.GridHelper(38, 38, isRealistic ? 0x334155 : 0x0ea5e9, 0x1e293b);
+    gridHelper.position.y = 0.005;
     scene.add(gridHelper);
 
-    // Dairy Interior Floor (Cream/Marble Tile in Realistic Mode, Dark Slate in Cyber Mode)
-    const shopFloorGeo = new THREE.PlaneGeometry(11.8, 9.5);
-    const shopFloorMat = new THREE.MeshStandardMaterial({
-      color: isRealistic ? 0x334155 : 0x0f172a,
-      roughness: isRealistic ? 0.25 : 0.4,
-      metalness: 0.15,
-    });
-    const shopFloor = new THREE.Mesh(shopFloorGeo, shopFloorMat);
+    const tileTex = createMarbleTileTexture(isRealistic);
+    const shopFloor = new THREE.Mesh(
+      new THREE.PlaneGeometry(12.2, 9.8),
+      new THREE.MeshStandardMaterial({
+        map: tileTex,
+        roughness: isRealistic ? 0.22 : 0.45,
+        metalness: 0.15,
+      })
+    );
     shopFloor.rotation.x = -Math.PI / 2;
     shopFloor.position.set(0, 0.015, -0.4);
     shopFloor.receiveShadow = true;
     scene.add(shopFloor);
 
-    // Exterior Public Asphalt Road (Z = +5.0 to +11.5)
-    const roadGeo = new THREE.PlaneGeometry(34, 6.4);
-    const roadMat = new THREE.MeshStandardMaterial({
-      color: isRealistic ? 0x1e2430 : 0x090d16,
-      roughness: 0.85,
-    });
-    const roadMesh = new THREE.Mesh(roadGeo, roadMat);
+    // Concrete Sidewalk Curb between Shop and Street
+    const curbMat = new THREE.MeshStandardMaterial({ color: isRealistic ? 0x94a3b8 : 0x1e293b, roughness: 0.6 });
+    const curb = new THREE.Mesh(new THREE.BoxGeometry(36, 0.14, 0.65), curbMat);
+    curb.position.set(0, 0.07, 4.75);
+    scene.add(curb);
+
+    // Realistic Textured Asphalt Street (Z = +5.1 to +11.6)
+    const roadTex = createAsphaltRoadTexture(isRealistic);
+    const roadMesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(36, 6.5),
+      new THREE.MeshStandardMaterial({ map: roadTex, roughness: 0.82 })
+    );
     roadMesh.rotation.x = -Math.PI / 2;
-    roadMesh.position.set(0, 0.012, 8.2);
+    roadMesh.position.set(0, 0.012, 8.35);
     roadMesh.receiveShadow = true;
     scene.add(roadMesh);
 
-    // Road Markings (Realistic White/Yellow Road Stripes in Realistic Mode)
-    const laneMat = new THREE.LineBasicMaterial({ color: isRealistic ? 0xe2e8f0 : 0x06b6d4 });
-    for (const zLine of [5.1, 8.2, 11.2]) {
-      const pts = [new THREE.Vector3(-16, 0.03, zLine), new THREE.Vector3(16, 0.03, zLine)];
-      scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), laneMat));
+    // Street Lamp Posts on Sidewalk
+    const poleMat = new THREE.MeshStandardMaterial({ color: 0x475569, metalness: 0.8, roughness: 0.2 });
+    for (const lx of [-7.2, 7.2]) {
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 4.4, 12), poleMat);
+      pole.position.set(lx, 2.2, 4.8);
+      scene.add(pole);
+      const lamp = new THREE.Mesh(
+        new THREE.SphereGeometry(0.22, 14, 14),
+        new THREE.MeshBasicMaterial({ color: 0xfef08a })
+      );
+      lamp.position.set(lx, 4.45, 5.1);
+      scene.add(lamp);
     }
 
-    // 2. PHOTOGRAMMETRIC 3D GROUND-PROJECTED LIVE CAMERA PATCHES (True 3D Relief from Live DVR Feeds!)
+    // 2. PHOTOGRAMMETRIC 3D GROUND-PROJECTED LIVE CAMERA PATCHES
     floorPatchMeshesRef.current = {};
+    const pcGroup = new THREE.Group();
+    scene.add(pcGroup);
+    pointCloudGroupRef.current = pcGroup;
+
     Object.entries(CAM_3D_ANCHORS).forEach(([chStr, cfg]) => {
       const ch = Number(chStr);
-      // 48x48 subdivided mesh for 3D depth relief displacement
       const patchGeo = new THREE.PlaneGeometry(cfg.floorPatchSize[0], cfg.floorPatchSize[1], 47, 47);
       const patchMat = new THREE.MeshStandardMaterial({
-        color: isRealistic ? 0x94a3b8 : 0x1e293b,
-        roughness: 0.45,
+        color: isRealistic ? 0xcbd5e1 : 0x1e293b,
+        roughness: 0.38,
         metalness: 0.1,
         transparent: true,
-        opacity: isRealistic ? 0.92 : 0.38,
+        opacity: isRealistic ? 0.94 : isPointCloud ? 0.45 : 0.38,
         side: THREE.DoubleSide,
       });
       if (videoTexturesRef.current[ch]) {
@@ -652,11 +880,17 @@ export const UnifiedStore360View: React.FC<Props> = ({
       floorPatchMeshesRef.current[ch] = patchMesh;
 
       if (videoTexturesRef.current[ch]?.image instanceof HTMLImageElement) {
-        displaceMeshFromImage(patchMesh, videoTexturesRef.current[ch].image as HTMLImageElement, isRealistic ? 0.55 : 0.15);
+        const imgEl = videoTexturesRef.current[ch].image as HTMLImageElement;
+        displaceMeshFromImage(patchMesh, imgEl, isRealistic ? 0.65 : 0.18);
+        if (isPointCloud) {
+          const pts = createPointCloudFromImage(imgEl, cfg);
+          pts.name = `pc-ch-${ch}`;
+          pcGroup.add(pts);
+        }
       }
     });
 
-    // 3. REALISTIC 3D DAIRY SHOP FURNITURE & EQUIPMENT
+    // 3. DETAILED 3D DAIRY SHOP ARCHITECTURE, SIGNBOARD, STOCKED RACKS & EQUIPMENT
     const add3DBox = (
       w: number,
       h: number,
@@ -682,95 +916,147 @@ export const UnifiedStore360View: React.FC<Props> = ({
       return m;
     };
 
+    // Shop Pillars & Glass Walls
+    const pillarMat = new THREE.MeshStandardMaterial({ color: isRealistic ? 0xe2e8f0 : 0x1e293b, roughness: 0.3 });
+    for (const [px, pz] of [[-5.9, 4.4], [5.9, 4.4], [-5.9, -4.9], [5.9, -4.9]]) {
+      add3DBox(0.38, 3.6, 0.38, px, 1.8, pz, pillarMat, 0x38bdf8);
+    }
+
+    // Glowing Hindi Shop Fascia Signboard above the Front Entrance
+    const signTex = createShopSignboardTexture();
+    const signBoard = new THREE.Mesh(
+      new THREE.BoxGeometry(8.6, 1.05, 0.22),
+      new THREE.MeshBasicMaterial({ map: signTex })
+    );
+    signBoard.position.set(0, 3.65, 4.4);
+    scene.add(signBoard);
+
     const wallMat = new THREE.MeshStandardMaterial({
-      color: isRealistic ? 0x64748b : 0x1e293b,
+      color: isRealistic ? 0x94a3b8 : 0x1e293b,
       transparent: true,
-      opacity: isRealistic ? 0.35 : 0.42,
-      roughness: 0.4,
+      opacity: isRealistic ? 0.32 : 0.4,
+      roughness: 0.35,
     });
-    add3DBox(11.8, 2.8, 0.18, 0, 1.4, -4.9, wallMat, 0x475569);
-    add3DBox(0.18, 2.8, 9.5, -5.8, 1.4, -0.2, wallMat, 0x475569);
-    add3DBox(0.18, 2.8, 9.5, 5.8, 1.4, -0.2, wallMat, 0x475569);
+    add3DBox(12.0, 3.2, 0.18, 0, 1.6, -5.0, wallMat, 0x475569);
+    add3DBox(0.18, 3.2, 9.6, -5.9, 1.6, -0.2, wallMat, 0x475569);
+    add3DBox(0.18, 3.2, 9.6, 5.9, 1.6, -0.2, wallMat, 0x475569);
 
-    // Front Dairy Counter (Dark Granite Top + Warm Counter Base in Realistic Mode)
-    const counterMat = new THREE.MeshStandardMaterial({
-      color: isRealistic ? 0x1f2937 : 0x0f2942,
+    // Main Dairy Counter with Granite Top & Glass Sweet/Paneer Display Front (Ch#1)
+    const counterBaseMat = new THREE.MeshStandardMaterial({
+      color: isRealistic ? 0x1e293b : 0x0f2942,
       roughness: 0.25,
-      metalness: 0.35,
+      metalness: 0.3,
     });
-    add3DBox(6.2, 1.05, 1.18, 0, 0.525, 3.3, counterMat, isRealistic ? 0x64748b : 0x0ea5e9);
-
-    // Shiny Stainless Steel Milk Patila + Rim on Counter (Ch#1)
-    const patilaMat = new THREE.MeshStandardMaterial({
-      color: 0xf1f5f9,
-      metalness: 0.92,
+    const graniteTopMat = new THREE.MeshStandardMaterial({
+      color: isRealistic ? 0x0f172a : 0x1e3a5f,
       roughness: 0.12,
+      metalness: 0.5,
     });
-    const patilaMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.45, 0.58, 28), patilaMat);
-    patilaMesh.position.set(0.45, 1.34, 3.3);
+    add3DBox(6.4, 0.98, 1.15, 0, 0.49, 3.3, counterBaseMat, isRealistic ? 0x64748b : 0x0ea5e9);
+    add3DBox(6.55, 0.09, 1.26, 0, 1.02, 3.3, graniteTopMat, 0x38bdf8);
+
+    // Digital Electronic Weighing Scale on Counter (with glowing green LED display)
+    const scaleMat = new THREE.MeshStandardMaterial({ color: 0xcbd5e1, metalness: 0.8, roughness: 0.2 });
+    add3DBox(0.48, 0.14, 0.44, -0.35, 1.13, 3.35, scaleMat, 0x10b981);
+
+    // Shiny Stainless Steel Milk Patila + White Milk + Ladle (Ch#1)
+    const steelMat = new THREE.MeshStandardMaterial({
+      color: 0xf8fafc,
+      metalness: 0.94,
+      roughness: 0.1,
+    });
+    const patilaMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.52, 0.46, 0.62, 32), steelMat);
+    patilaMesh.position.set(0.5, 1.37, 3.3);
     patilaMesh.castShadow = true;
     scene.add(patilaMesh);
 
-    // White Milk Surface inside Patila
-    const milkTop = new THREE.Mesh(
-      new THREE.CircleGeometry(0.44, 24),
+    const milkSurface = new THREE.Mesh(
+      new THREE.CircleGeometry(0.46, 28),
       new THREE.MeshBasicMaterial({ color: 0xffffff })
     );
-    milkTop.rotation.x = -Math.PI / 2;
-    milkTop.position.set(0.45, 1.635, 3.3);
-    scene.add(milkTop);
+    milkSurface.rotation.x = -Math.PI / 2;
+    milkSurface.position.set(0.5, 1.685, 3.3);
+    scene.add(milkSurface);
 
-    // Two Red Snack/Packet Trays on Counter (Ch#1)
+    // Two Red Milk/Snack Trays Filled with Colorful Packets (Ch#1 left)
     const trayMat = new THREE.MeshStandardMaterial({ color: 0xdc2626, roughness: 0.35 });
-    add3DBox(0.78, 0.24, 0.68, -1.1, 1.17, 3.3, trayMat, 0xf87171);
-    add3DBox(0.78, 0.24, 0.68, -2.0, 1.17, 3.3, trayMat, 0xf87171);
+    for (const tx of [-1.2, -2.15]) {
+      add3DBox(0.82, 0.24, 0.72, tx, 1.18, 3.3, trayMat, 0xf87171);
+      // Milk/snack packets inside tray
+      for (let p = 0; p < 3; p++) {
+        const pktMat = new THREE.MeshStandardMaterial({
+          color: p === 0 ? 0xfacc15 : p === 1 ? 0x38bdf8 : 0xf8fafc,
+          roughness: 0.3,
+        });
+        add3DBox(0.22, 0.18, 0.48, tx - 0.22 + p * 0.22, 1.32, 3.3, pktMat);
+      }
+    }
 
-    // Laptop on Right Side of Counter (Ch#1)
-    const laptopMat = new THREE.MeshStandardMaterial({ color: 0x111827, metalness: 0.7, roughness: 0.2 });
-    add3DBox(0.45, 0.04, 0.32, 1.75, 1.08, 3.1, laptopMat, 0x38bdf8);
-    const laptopScreen = add3DBox(0.45, 0.3, 0.03, 1.75, 1.24, 3.24, laptopMat, 0x38bdf8);
-    laptopScreen.rotation.x = -0.2;
+    // Laptop on Counter Right (Ch#1)
+    const laptopMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, metalness: 0.7, roughness: 0.2 });
+    add3DBox(0.48, 0.04, 0.34, 1.85, 1.09, 3.1, laptopMat, 0x38bdf8);
+    const laptopScreen = add3DBox(0.48, 0.32, 0.03, 1.85, 1.26, 3.25, laptopMat, 0x38bdf8);
+    laptopScreen.rotation.x = -0.18;
 
-    // Cash Galla Desk (Ch#2)
+    // Cash Galla Drawer Desk (Ch#2)
     const gallaMat = new THREE.MeshStandardMaterial({
-      color: isRealistic ? 0x451a03 : 0x3b0764,
+      color: isRealistic ? 0x78350f : 0x3b0764,
       roughness: 0.35,
     });
-    add3DBox(1.5, 1.0, 1.1, 2.3, 0.5, 1.9, gallaMat, 0xf43f5e);
+    add3DBox(1.55, 1.02, 1.15, 2.35, 0.51, 1.85, gallaMat, 0xf43f5e);
 
-    // Two White Glass-Top Sliding Deep Freezers (Ch#2 & Ch#3)
+    // Two White Glass-Top Sliding Deep Freezers with Visible Inner Dairy Trays (Ch#2 & Ch#3)
     const whiteFreezerMat = new THREE.MeshStandardMaterial({
-      color: isRealistic ? 0xe2e8f0 : 0x1e3a5f,
-      roughness: 0.2,
+      color: isRealistic ? 0xf1f5f9 : 0x1e3a5f,
+      roughness: 0.18,
       metalness: 0.15,
     });
     const glassLidMat = new THREE.MeshStandardMaterial({
-      color: 0xbae6fd,
+      color: 0xe0f2fe,
       transparent: true,
-      opacity: 0.55,
-      roughness: 0.1,
-      metalness: 0.5,
+      opacity: 0.52,
+      roughness: 0.08,
+      metalness: 0.6,
     });
-    add3DBox(2.1, 0.92, 1.15, -0.8, 0.46, -1.2, whiteFreezerMat, 0x38bdf8);
-    add3DBox(1.95, 0.05, 1.02, -0.8, 0.94, -1.2, glassLidMat);
-    add3DBox(2.1, 0.92, 1.15, 1.6, 0.46, -1.2, whiteFreezerMat, 0x38bdf8);
-    add3DBox(1.95, 0.05, 1.02, 1.6, 0.94, -1.2, glassLidMat);
+    for (const fx of [-0.85, 1.65]) {
+      add3DBox(2.15, 0.94, 1.18, fx, 0.47, -1.2, whiteFreezerMat, 0x38bdf8);
+      add3DBox(2.0, 0.05, 1.05, fx, 0.96, -1.2, glassLidMat);
+    }
 
     // Orange Staff Chair on Left of Ch#2
-    const chairMat = new THREE.MeshStandardMaterial({ color: 0xea580c, roughness: 0.4 });
-    add3DBox(0.65, 0.48, 0.65, -3.4, 0.24, -0.5, chairMat);
-    add3DBox(0.12, 0.55, 0.65, -3.68, 0.72, -0.5, chairMat);
+    const chairMat = new THREE.MeshStandardMaterial({ color: 0xea580c, roughness: 0.35 });
+    add3DBox(0.68, 0.48, 0.68, -3.4, 0.24, -0.5, chairMat);
+    add3DBox(0.12, 0.58, 0.68, -3.7, 0.75, -0.5, chairMat);
 
-    // Two 50L Stainless Steel Milk Cans on Right of Ch#2
-    for (const zCan of [0.2, -0.6]) {
-      const can = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.26, 0.75, 20), patilaMat);
-      can.position.set(3.8, 0.38, zCan);
+    // Right-Side Milk Boiling Bhatti / Kadhai + 4 Shiny 50L Stainless Steel Milk Cans (Ch#2 right)
+    const bhattiMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.5 });
+    add3DBox(1.15, 0.78, 1.15, 4.1, 0.39, -1.2, bhattiMat, 0xf97316);
+    const kadhai = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.35, 0.32, 24), steelMat);
+    kadhai.position.set(4.1, 0.92, -1.2);
+    scene.add(kadhai);
+
+    for (const [cx, cz] of [[3.8, 0.35], [4.45, 0.35], [3.8, -0.25], [4.45, -0.25]]) {
+      const can = new THREE.Mesh(new THREE.CylinderGeometry(0.23, 0.25, 0.78, 22), steelMat);
+      can.position.set(cx, 0.39, cz);
       can.castShadow = true;
       scene.add(can);
     }
 
-    // Back Wall Chest Freezers & Weighing Scale Rack (Ch#3)
-    add3DBox(6.8, 1.08, 1.0, 0.2, 0.54, -3.9, whiteFreezerMat, isRealistic ? 0x94a3b8 : 0xa855f7);
+    // 4-Tier Stocked Kirana & Dairy Back Wall Shelf Rack (Ch#3)
+    const rackFrameMat = new THREE.MeshStandardMaterial({ color: isRealistic ? 0x334155 : 0x1e293b, metalness: 0.5 });
+    add3DBox(7.4, 2.35, 0.85, 0.2, 1.18, -4.25, rackFrameMat, isRealistic ? 0x94a3b8 : 0xa855f7);
+    const itemColors = [0xef4444, 0xf59e0b, 0x10b981, 0x3b82f6, 0xec4899, 0xf8fafc];
+    for (let tier = 0; tier < 3; tier++) {
+      const sy = 0.55 + tier * 0.65;
+      for (let slot = 0; slot < 8; slot++) {
+        const sx = -2.6 + slot * 0.78;
+        const pMat = new THREE.MeshStandardMaterial({
+          color: itemColors[(tier * 8 + slot) % itemColors.length],
+          roughness: 0.3,
+        });
+        add3DBox(0.45, 0.38, 0.45, sx, sy, -4.05, pMat);
+      }
+    }
 
     // 4. 3D LIVE CAMERA SCREENS & VISION CONES
     videoMeshesRef.current = {};
@@ -803,7 +1089,7 @@ export const UnifiedStore360View: React.FC<Props> = ({
         color: cfg.color,
         wireframe: true,
         transparent: true,
-        opacity: isRealistic ? 0.14 : 0.24,
+        opacity: isRealistic ? 0.12 : 0.24,
       });
       const coneMesh = new THREE.Mesh(coneGeo, coneMat);
       coneMesh.position.set(cfg.pos[0], cfg.pos[1] - 1.1, cfg.pos[2]);
@@ -822,15 +1108,13 @@ export const UnifiedStore360View: React.FC<Props> = ({
     dynamicGroupRef.current = dynamicGroup;
 
     const entityMeshMap: Record<string, THREE.Group> = {};
-    const cropTexLoader = new THREE.TextureLoader();
 
     const create3DEntityGroup = (ent: Tracked3DEntity): THREE.Group => {
       const g = new THREE.Group();
 
       if (ent.kind === 'BIKE') {
-        // Realistic 3D Motorcycle (2 Wheels + Chassis + Handlebar + Headlight)
         const wheelGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.14, 18);
-        const wheelMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.7 });
+        const wheelMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.7 });
         const wFront = new THREE.Mesh(wheelGeo, wheelMat);
         wFront.rotation.z = Math.PI / 2;
         wFront.position.set(0, 0.3, 0.55);
@@ -843,17 +1127,17 @@ export const UnifiedStore360View: React.FC<Props> = ({
 
         const bodyMat = new THREE.MeshStandardMaterial({
           color: isRealistic ? 0xdc2626 : ent.color,
-          metalness: 0.6,
-          roughness: 0.25,
+          metalness: 0.65,
+          roughness: 0.2,
         });
-        const frame = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.45, 1.25), bodyMat);
+        const frame = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.46, 1.28), bodyMat);
         frame.position.set(0, 0.58, 0);
         g.add(frame);
       } else if (ent.kind === 'CAR') {
         const carMat = new THREE.MeshStandardMaterial({
           color: isRealistic ? 0xf8fafc : ent.color,
-          metalness: 0.7,
-          roughness: 0.2,
+          metalness: 0.75,
+          roughness: 0.18,
         });
         const lower = new THREE.Mesh(new THREE.BoxGeometry(1.65, 0.55, 3.3), carMat);
         lower.position.y = 0.42;
@@ -862,10 +1146,10 @@ export const UnifiedStore360View: React.FC<Props> = ({
         cabin.position.set(0, 0.88, -0.1);
         g.add(cabin);
       } else {
-        // Articulated Realistic 3D Human Figure (Legs + Shirt Torso + Arms + Skin Head + Hair)
+        // Articulated Animated 3D Human (Legs, Shoes, Torso, Arms, Neck, Head, Hair, Milk Bag)
         const pantsMat = new THREE.MeshStandardMaterial({
           color: isRealistic ? 0x1e293b : ent.color,
-          roughness: 0.6,
+          roughness: 0.55,
         });
         const shirtColor =
           ent.kind === 'CUSTOMER'
@@ -873,57 +1157,72 @@ export const UnifiedStore360View: React.FC<Props> = ({
             : isRealistic ? 0x2563eb : ent.color;
         const shirtMat = new THREE.MeshStandardMaterial({
           color: shirtColor,
-          roughness: 0.4,
+          roughness: 0.35,
         });
         const skinMat = new THREE.MeshStandardMaterial({
           color: isRealistic ? 0xf1c27d : ent.color,
-          roughness: 0.45,
+          roughness: 0.4,
+        });
+        const hairMat = new THREE.MeshStandardMaterial({
+          color: 0x0f172a,
+          roughness: 0.6,
         });
 
-        // Left & Right Legs
         const legGeo = new THREE.CylinderGeometry(0.09, 0.08, 0.72, 12);
         const leftLeg = new THREE.Mesh(legGeo, pantsMat);
         leftLeg.position.set(-0.12, 0.36, 0);
+        leftLeg.name = 'leftLeg';
         g.add(leftLeg);
+
         const rightLeg = new THREE.Mesh(legGeo, pantsMat);
         rightLeg.position.set(0.12, 0.36, 0);
+        rightLeg.name = 'rightLeg';
         g.add(rightLeg);
 
-        // Torso & Shoulders
-        const torso = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.62, 0.26), shirtMat);
-        torso.position.set(0, 1.02, 0);
+        const torso = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.64, 0.28), shirtMat);
+        torso.position.set(0, 1.03, 0);
         torso.castShadow = true;
+        torso.name = 'torso';
         g.add(torso);
 
-        // Left & Right Arms
-        const armGeo = new THREE.CylinderGeometry(0.065, 0.055, 0.54, 10);
+        const armGeo = new THREE.CylinderGeometry(0.065, 0.055, 0.56, 10);
         const leftArm = new THREE.Mesh(armGeo, shirtMat);
-        leftArm.position.set(-0.3, 1.0, 0);
+        leftArm.position.set(-0.31, 1.01, 0);
+        leftArm.name = 'leftArm';
         g.add(leftArm);
+
         const rightArm = new THREE.Mesh(armGeo, shirtMat);
-        rightArm.position.set(0.3, 1.0, 0);
+        rightArm.position.set(0.31, 1.01, 0);
+        rightArm.name = 'rightArm';
         g.add(rightArm);
 
-        // Head & Hair Cap
-        const head = new THREE.Mesh(new THREE.SphereGeometry(0.18, 16, 16), skinMat);
-        head.position.set(0, 1.52, 0);
+        const head = new THREE.Mesh(new THREE.SphereGeometry(0.185, 18, 18), skinMat);
+        head.position.set(0, 1.54, 0);
         g.add(head);
 
-        // Live 3D Photo-Cutout Badge floating above/on the 3D Person in REALISTIC_3D mode!
-        if (isRealistic && ent.cropDataUrl) {
-          cropTexLoader.load(ent.cropDataUrl, (cutTex) => {
-            cutTex.colorSpace = THREE.SRGBColorSpace;
-            const cutMat = new THREE.SpriteMaterial({ map: cutTex, transparent: true });
-            const sprite = new THREE.Sprite(cutMat);
-            sprite.scale.set(0.95, 1.25, 1);
-            sprite.position.set(0, 2.38, 0);
-            g.add(sprite);
-          });
-        }
+        const hairCap = new THREE.Mesh(
+          new THREE.SphereGeometry(0.192, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.55),
+          hairMat
+        );
+        hairCap.position.set(0, 1.56, -0.01);
+        g.add(hairCap);
+      }
+
+      // Floating High-DPI 3D Overhead Photo + Name Card Sprite
+      if (ent.cropDataUrl) {
+        const img = new Image();
+        img.onload = () => {
+          const oldCard = g.getObjectByName('overheadCard');
+          if (oldCard) g.remove(oldCard);
+          g.add(buildOverheadCardSprite(ent, img));
+        };
+        img.src = ent.cropDataUrl;
+      } else {
+        g.add(buildOverheadCardSprite(ent));
       }
 
       // Ground Target Ring
-      const ringGeo = new THREE.RingGeometry(0.42, 0.56, 24);
+      const ringGeo = new THREE.RingGeometry(0.42, 0.58, 28);
       const ringMat = new THREE.MeshBasicMaterial({
         color: ent.color,
         side: THREE.DoubleSide,
@@ -944,11 +1243,11 @@ export const UnifiedStore360View: React.FC<Props> = ({
 
     const animate = () => {
       animId = requestAnimationFrame(animate);
-      clock += 0.03;
+      clock += 0.035;
 
       const o = orbitRef.current;
       if (!o.isDragging && autoRotate) {
-        o.theta += 0.0032;
+        o.theta += 0.0028;
       }
 
       const sinPhi = Math.sin(o.phi);
@@ -958,10 +1257,13 @@ export const UnifiedStore360View: React.FC<Props> = ({
       camera.lookAt(o.targetX, o.targetY, o.targetZ);
 
       const activeIds = new Set<string>();
-      entitiesRef.current.forEach((ent) => {
+      entitiesRef.current.forEach((ent, idx) => {
         activeIds.add(ent.id);
-        ent.curX += (ent.targetX - ent.curX) * 0.08;
-        ent.curZ += (ent.targetZ - ent.curZ) * 0.08;
+        const dx = ent.targetX - ent.curX;
+        const dz = ent.targetZ - ent.curZ;
+        const speed = Math.hypot(dx, dz);
+        ent.curX += dx * 0.08;
+        ent.curZ += dz * 0.08;
 
         let meshGrp = entityMeshMap[ent.id];
         if (!meshGrp) {
@@ -971,9 +1273,29 @@ export const UnifiedStore360View: React.FC<Props> = ({
         }
         meshGrp.position.set(ent.curX, 0, ent.curZ);
 
+        // Face towards the counter or movement direction
+        if (speed > 0.03) {
+          meshGrp.rotation.y = Math.atan2(dx, dz);
+        } else if (ent.kind === 'CUSTOMER') {
+          meshGrp.rotation.y = Math.PI; // face the counter patila
+        }
+
+        // Natural limb swing & idle breathing animation
+        const swing = speed > 0.02 ? Math.sin(clock * 4.5 + idx) * 0.45 : Math.sin(clock * 1.5 + idx) * 0.06;
+        const lLeg = meshGrp.getObjectByName('leftLeg');
+        const rLeg = meshGrp.getObjectByName('rightLeg');
+        const lArm = meshGrp.getObjectByName('leftArm');
+        const rArm = meshGrp.getObjectByName('rightArm');
+        if (lLeg && rLeg && lArm && rArm) {
+          lLeg.rotation.x = swing;
+          rLeg.rotation.x = -swing;
+          lArm.rotation.x = -swing * 0.8;
+          rArm.rotation.x = swing * 0.8;
+        }
+
         const ring = meshGrp.getObjectByName('pulseRing');
         if (ring) {
-          const s = 1 + Math.sin(clock * 2.5) * 0.16;
+          const s = 1 + Math.sin(clock * 2.5 + idx) * 0.16;
           ring.scale.set(s, s, 1);
         }
       });
@@ -1042,7 +1364,7 @@ export const UnifiedStore360View: React.FC<Props> = ({
 
   return (
     <div className="space-y-4">
-      {/* Top Control Header with Dual 3D Engine Switcher: REALISTIC_3D vs CYBER_RADAR */}
+      {/* Top Control Header with 3-Mode Realism Switcher */}
       <div className="p-3.5 rounded-2xl bg-gradient-to-r from-slate-950 via-indigo-950/70 to-emerald-950/50 border border-cyan-500/30 flex flex-wrap items-center justify-between gap-3 shadow-xl">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-2xl bg-cyan-500/15 border border-cyan-400/40 flex items-center justify-center text-cyan-300 shadow-inner">
@@ -1052,7 +1374,9 @@ export const UnifiedStore360View: React.FC<Props> = ({
             <div className="flex flex-wrap items-center gap-2">
               <h4 className="text-xs sm:text-sm font-black text-white tracking-wide">
                 {visualStyle === 'REALISTIC_3D'
-                  ? '🌍 REALISTIC 3D DRONE REALITY VIEW (लाइव 3D फोटोरियलिस्टिक दुकान व्यू)'
+                  ? '🌍 ULTRA-REALISTIC 3D DAIRY REALITY VIEW (लाइव 3D फोटोरियलिस्टिक दुकान)'
+                  : visualStyle === 'POINT_CLOUD_3D'
+                  ? '✨ 3D VOLUMETRIC LIDAR / POINT-CLOUD VIEW (लाइव 3D डेप्थ पॉइंट-क्लाउड)'
                   : '🛸 TESLA CYBER RADAR 3D VIEW (साइबर होलोग्राफिक 3D व्यू)'}
               </h4>
               <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 font-mono font-bold">
@@ -1061,32 +1385,45 @@ export const UnifiedStore360View: React.FC<Props> = ({
             </div>
             <p className="text-[11px] text-dark-300">
               {visualStyle === 'REALISTIC_3D'
-                ? 'पाँचों कैमरों की असली फुटेज 3D फर्श व गहराई (3D Relief) में प्रोजेक्टेड + लाइव 3D इंसान व वाहन कटआउट'
+                ? 'रियलिस्टिक मार्बल टाइल्स, साइनबोर्ड, भरा हुआ रैक, भट्टी, 3D कैमरा डेप्थ-फर्श और चलते हुए 3D इंसान + असली फोटो कार्ड'
+                : visualStyle === 'POINT_CLOUD_3D'
+                ? 'पाँचों कैमरों के पिक्सल्स से बनी 14,000+ 3D पॉइंट्स की लाइव होलोग्राफिक डेप्थ जाली (Gaussian/LiDAR Splat)'
                 : 'Tesla FSD स्टाइल डार्क रडार ग्रिड, 3D अवतार, लेज़र कोन्स व लाइव वीडियो वॉल्स'}
             </p>
           </div>
         </div>
 
-        {/* Mode Switcher: REALISTIC 3D vs CYBER RADAR 3D + Angle Presets */}
+        {/* 3-Way 3D Engine Switcher + Angle Presets */}
         <div className="flex flex-wrap items-center gap-1.5 text-xs">
-          {/* Dual 3D Mode Switcher */}
           <div className="flex items-center bg-dark-950 p-1 rounded-xl border border-emerald-500/40 shadow">
             <button
               type="button"
               onClick={() => setVisualStyle('REALISTIC_3D')}
-              className={`px-3 py-1 rounded-lg text-[11px] font-extrabold flex items-center gap-1 transition ${
+              className={`px-2.5 py-1 rounded-lg text-[11px] font-extrabold flex items-center gap-1 transition ${
                 visualStyle === 'REALISTIC_3D'
                   ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white keep-white-text shadow'
                   : 'text-dark-300 hover:text-white'
               }`}
             >
               <Sun className="w-3.5 h-3.5" />
-              <span>🌍 रियलिस्टिक 3D व्यू</span>
+              <span>🌍 अल्ट्रा-रियलिस्टिक 3D</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setVisualStyle('POINT_CLOUD_3D')}
+              className={`px-2.5 py-1 rounded-lg text-[11px] font-extrabold flex items-center gap-1 transition ${
+                visualStyle === 'POINT_CLOUD_3D'
+                  ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white keep-white-text shadow'
+                  : 'text-dark-300 hover:text-white'
+              }`}
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>✨ 3D पॉइंट-क्लाउड</span>
             </button>
             <button
               type="button"
               onClick={() => setVisualStyle('CYBER_RADAR')}
-              className={`px-3 py-1 rounded-lg text-[11px] font-extrabold flex items-center gap-1 transition ${
+              className={`px-2.5 py-1 rounded-lg text-[11px] font-extrabold flex items-center gap-1 transition ${
                 visualStyle === 'CYBER_RADAR'
                   ? 'bg-gradient-to-r from-cyan-600 to-indigo-600 text-white keep-white-text shadow'
                   : 'text-dark-300 hover:text-white'
@@ -1185,7 +1522,9 @@ export const UnifiedStore360View: React.FC<Props> = ({
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
               <span>
                 {visualStyle === 'REALISTIC_3D'
-                  ? 'PHOTOREALISTIC 3D DEPTH MESH + LIVE CUTOUTS'
+                  ? 'PBR REALISTIC 3D ARCHITECTURE + ANIMATED HUMANS & PHOTO CARDS'
+                  : visualStyle === 'POINT_CLOUD_3D'
+                  ? '14,000+ LIVE 3D DEPTH POINT-CLOUD SPLATS'
                   : 'CYBER HOLOGRAPHIC 3D RADAR'}
               </span>
             </span>
@@ -1215,7 +1554,7 @@ export const UnifiedStore360View: React.FC<Props> = ({
           onTouchMove={(e) => e.touches[0] && onPointerMove(e.touches[0].clientX, e.touches[0].clientY)}
           onTouchEnd={onPointerUp}
           onWheel={(e) => onWheelZoom(e.deltaY)}
-          className="w-full h-[450px] cursor-grab active:cursor-grabbing"
+          className="w-full h-[470px] cursor-grab active:cursor-grabbing"
         />
 
         {/* Bottom-Left Floating Live 3D Object Radar List */}
@@ -1341,7 +1680,7 @@ export const UnifiedStore360View: React.FC<Props> = ({
         <span className="flex items-center gap-1.5">
           <ShieldCheck className="w-4 h-4 text-cyan-400" />
           <span>
-            <strong>Dual 3D Engine:</strong> ऊपर से <strong>🌍 रियलिस्टिक 3D व्यू</strong> और <strong>🛸 साइबर रडार 3D</strong> के बीच कभी भी स्विच करें।
+            <strong>Triple 3D Engine:</strong> ऊपर से <strong>🌍 अल्ट्रा-रियलिस्टिक 3D</strong>, <strong>✨ 3D पॉइंट-क्लाउड</strong> और <strong>🛸 साइबर रडार 3D</strong> में कभी भी स्विच करें।
           </span>
         </span>
         <div className="flex items-center gap-3">
