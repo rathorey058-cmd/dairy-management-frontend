@@ -4,8 +4,11 @@ import {
   Video, Upload, Camera, Mic, MicOff, Volume2, VolumeX,
   Play, Pause, Trash2, RotateCcw, ShieldAlert, LayoutGrid,
   Maximize2, Minimize2, FileBarChart2, HardDrive, Settings,
-  Palette, ArrowLeftRight
+  Palette, ArrowLeftRight, Compass, Crown
 } from 'lucide-react';
+import { UnifiedStore360View } from './UnifiedStore360View';
+import { VisualPairingModal } from './VisualPairingModal';
+import { parseVisitsFromTimeline } from './QuickReportModal';
 
 type ZoneType = 'gate' | 'customer' | 'tank' | 'ignore' | 'galla';
 
@@ -91,6 +94,9 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
 }) => {
   // Video source & multi-cam layout state
   const [sourceMode, setSourceMode] = useState<'DVR' | 'FILE' | 'WEBCAM'>('DVR');
+  const [showTesla3D, setShowTesla3D] = useState<boolean>(true);
+  const [isPairingModalOpen, setIsPairingModalOpen] = useState<boolean>(false);
+  const [pairingBlocks, setPairingBlocks] = useState<any[]>([]);
   const [focusedCamId, setFocusedCamId] = useState<string | null>(null); // null = show ALL cameras in grid
   const [dvrFrames, setDvrFrames] = useState<Record<string, string>>({});
   const [dvrStatus, setDvrStatus] = useState<Record<string, 'LIVE' | 'OFFLINE'>>({});
@@ -170,6 +176,32 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
   const pendingVoiceRef = useRef<PendingVoiceOrder[]>([]);
   const lastGallaEventRef = useRef<number>(0);
   const rateListRef = useRef<string>(rateListText);
+
+
+  const fetchPairingBlocks = useCallback(async () => {
+    try {
+      const res = await API.get('/cameras/pairing-blocks');
+      if (res.data?.blocks) setPairingBlocks(res.data.blocks);
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    fetchPairingBlocks();
+    const todayStr = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().split('T')[0];
+    API.get('/cameras/playback/timeline', { params: { date: todayStr, startTime: '00:00', endTime: '23:59' } })
+      .then((res) => {
+        const visits = parseVisitsFromTimeline(res.data);
+        if (visits.length > 0) {
+          const totalCust = visits.reduce((acc, v) => acc + v.people, 0);
+          const totalCash = visits.reduce((acc, v) => acc + v.amountPaid, 0);
+          const gallaCnt = visits.filter((v) => v.gallaDeposited).length;
+          setCustomerZoneCount((prev) => Math.max(prev, totalCust));
+          setGallaMotionCount((prev) => Math.max(prev, gallaCnt));
+          setEnteredCash((prev) => Math.max(prev, totalCash));
+        }
+      })
+      .catch(() => {});
+  }, [fetchPairingBlocks]);
 
   useEffect(() => {
     zonesRef.current = zones;
@@ -1003,6 +1035,27 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
+            onClick={() => setShowTesla3D(!showTesla3D)}
+            className={`px-3 py-2 rounded-xl text-xs font-extrabold flex items-center gap-1.5 border transition-all shadow ${
+              showTesla3D
+                ? 'bg-gradient-to-r from-cyan-600 to-indigo-600 text-white border-cyan-400 keep-white-text'
+                : 'bg-dark-800 text-cyan-300 border-cyan-500/40 hover:border-cyan-400'
+            }`}
+          >
+            <Compass className="w-3.5 h-3.5" />
+            <span>🛸 3D Tesla व्यू {showTesla3D ? 'ON' : 'OFF'}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsPairingModalOpen(true)}
+            className="px-3 py-2 rounded-xl text-xs font-bold bg-amber-500/15 text-amber-300 border border-amber-500/35 hover:bg-amber-500/25 flex items-center gap-1.5"
+          >
+            <Crown className="w-3.5 h-3.5 text-amber-400" />
+            <span>💎 प्लान स्लैब्स व ब्लॉक्स ({pairingBlocks.length})</span>
+          </button>
+          <button
+            type="button"
             onClick={() => {
               handleStartLiveDvr();
               setFocusedCamId(null);
@@ -1078,6 +1131,34 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
           )}
         </div>
       </div>
+
+      {/* Three.js WebGL 60FPS Tesla FSD 3D Reality View */}
+      {showTesla3D && (
+        <UnifiedStore360View
+          cameras={cameras}
+          gridSnapshots={dvrFrames}
+          pairingBlocks={pairingBlocks}
+          onSelectSingleCamera={(camId) => {
+            setSourceMode('DVR');
+            setFocusedCamId(camId);
+          }}
+          onOpenVisualPairingForChannel={() => setIsPairingModalOpen(true)}
+          todayStats={{
+            customers: customerZoneCount,
+            gallaOpenings: gallaMotionCount,
+          }}
+        />
+      )}
+
+      {/* Visual Pairing & Plan Slabs Modal */}
+      <VisualPairingModal
+        isOpen={isPairingModalOpen}
+        onClose={() => {
+          setIsPairingModalOpen(false);
+          fetchPairingBlocks();
+        }}
+        cameras={cameras}
+      />
 
       {/* Main Unified 12-Column Grid */}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 items-start">
