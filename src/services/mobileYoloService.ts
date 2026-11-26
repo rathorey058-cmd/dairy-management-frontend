@@ -1,26 +1,25 @@
 import * as ort from 'onnxruntime-web';
 
-// Configure ONNX WASM path (loads wasm binaries efficiently)
+// Configure ONNX Runtime Web safely (uses Vite/Capacitor bundled 1.31.1 WASM first, zero version mismatch)
 try {
   ort.env.wasm.numThreads = 1;
   ort.env.wasm.simd = true;
-  ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.24.4/dist/';
 } catch (e) {
   console.warn('WASM config warning:', e);
 }
 
 // 80 COCO Classes used by YOLOv8
 const COCO_CLASSES = [
-  "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat",
-  "traffic light", "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat",
-  "dog", "horse", "sheep", "cow", "elephant", "bear", "zebra", "giraffe", "backpack",
-  "umbrella", "handbag", "tie", "suitcase", "frisbee", "skis", "snowboard", "sports ball",
-  "kite", "baseball bat", "baseball glove", "skateboard", "surfboard", "tennis racket",
-  "bottle", "wine glass", "cup", "fork", "knife", "spoon", "bowl", "banana", "apple",
-  "sandwich", "orange", "broccoli", "carrot", "hot dog", "pizza", "donut", "cake", "chair",
-  "couch", "potted plant", "bed", "dining table", "toilet", "tv", "laptop", "mouse", "remote",
-  "keyboard", "cell phone", "microwave", "oven", "toaster", "sink", "refrigerator", "book",
-  "clock", "vase", "scissors", "teddy bear", "hair drier", "toothbrush"
+  'person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck', 'boat',
+  'traffic light', 'fire hydrant', 'stop sign', 'parking meter', 'bench', 'bird', 'cat',
+  'dog', 'horse', 'sheep', 'cow', 'elephant', 'bear', 'zebra', 'giraffe', 'backpack',
+  'umbrella', 'handbag', 'tie', 'suitcase', 'frisbee', 'skis', 'snowboard', 'sports ball',
+  'kite', 'baseball bat', 'baseball glove', 'skateboard', 'surfboard', 'tennis racket',
+  'bottle', 'wine glass', 'cup', 'fork', 'knife', 'spoon', 'bowl', 'banana', 'apple',
+  'sandwich', 'orange', 'broccoli', 'carrot', 'hot dog', 'pizza', 'donut', 'cake', 'chair',
+  'couch', 'potted plant', 'bed', 'dining table', 'toilet', 'tv', 'laptop', 'mouse', 'remote',
+  'keyboard', 'cell phone', 'microwave', 'oven', 'toaster', 'sink', 'refrigerator', 'book',
+  'clock', 'vase', 'scissors', 'teddy bear', 'hair drier', 'toothbrush'
 ];
 
 export interface DetectedObject {
@@ -34,79 +33,129 @@ export interface DetectedObject {
   };
 }
 
+interface LetterboxMeta {
+  tensor: ort.Tensor;
+  scale: number;
+  padX: number;
+  padY: number;
+  srcW: number;
+  srcH: number;
+}
+
 class MobileYoloEngine {
   private session: ort.InferenceSession | null = null;
+  private initPromise: Promise<boolean> | null = null;
   private isModelLoading = false;
   private isModelReady = false;
+  private lastError: string | null = null;
   private isRunning = false;
   private lastPersonCount = 0;
   private totalFootfallToday = 0;
   private detectionInterval: any = null;
+  private prepCanvas: HTMLCanvasElement | null = null;
+  private floatBuffer: Float32Array = new Float32Array(3 * 640 * 640);
 
   /**
-   * Initialize and warm-up YOLOv8 Nano model on mobile CPU
+   * Initialize and warm-up YOLOv8 Nano model on browser/mobile CPU with safe CDN fallback
    */
   public async initModel(): Promise<boolean> {
-    if (this.isModelReady) return true;
-    if (this.isModelLoading) return false;
+    if (this.isModelReady && this.session) return true;
+    if (this.initPromise) return this.initPromise;
 
-    try {
+    this.initPromise = (async () => {
       this.isModelLoading = true;
-      console.log('📱 [Mobile YOLO]: Initializing ONNX Runtime Web on device...');
-
-      // Load 12MB YOLOv8n ONNX model from app bundle
       const modelUrl = '/models/yolov8n.onnx';
-      this.session = await ort.InferenceSession.create(modelUrl, {
-        executionProviders: ['wasm'],
-        graphOptimizationLevel: 'all'
-      });
 
-      this.isModelReady = true;
-      this.isModelLoading = false;
-      console.log('✅ [Mobile YOLO]: Model loaded and ready on Mobile device (₹0 API Cost)!');
-      return true;
-    } catch (err) {
-      console.error('❌ [Mobile YOLO] Model initialization failed:', err);
-      this.isModelLoading = false;
-      this.isModelReady = false;
-      return false;
+      try {
+        this.session = await ort.InferenceSession.create(modelUrl, {
+          executionProviders: ['wasm'],
+          graphOptimizationLevel: 'all',
+        });
+        this.isModelReady = true;
+        this.lastError = null;
+        return true;
+      } catch (primaryErr: any) {
+        try {
+          // Fallback to matching 1.31.1 CDN WASM path if dev server did not serve .wasm mime cleanly
+          ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.31.1/dist/';
+          this.session = await ort.InferenceSession.create(modelUrl, {
+            executionProviders: ['wasm'],
+            graphOptimizationLevel: 'all',
+          });
+          this.isModelReady = true;
+          this.lastError = null;
+          return true;
+        } catch (fallbackErr: any) {
+          this.lastError = fallbackErr?.message || primaryErr?.message || 'ONNX init failed';
+          console.warn('[Mobile YOLO] Model init notice:', this.lastError);
+          this.isModelReady = false;
+          return false;
+        }
+      } finally {
+        this.isModelLoading = false;
+        this.initPromise = null;
+      }
+    })();
+
+    return this.initPromise;
+  }
+
+  private getSourceDimensions(source: HTMLVideoElement | HTMLImageElement | HTMLCanvasElement): { w: number; h: number } {
+    if (source instanceof HTMLVideoElement) {
+      return { w: source.videoWidth || 640, h: source.videoHeight || 360 };
     }
+    if (source instanceof HTMLImageElement) {
+      return { w: source.naturalWidth || source.width || 640, h: source.naturalHeight || source.height || 360 };
+    }
+    return { w: source.width || 640, h: source.height || 360 };
   }
 
   /**
-   * Preprocess HTMLCanvas or HTMLImage to 640x640 Float32 Tensor
+   * Letterbox-preserving 640x640 preprocessing (reuses single canvas & Float32Array for 0 memory leak)
    */
-  private preprocess(source: HTMLVideoElement | HTMLImageElement | HTMLCanvasElement): ort.Tensor {
-    const canvas = document.createElement('canvas');
-    canvas.width = 640;
-    canvas.height = 640;
-    const ctx = canvas.getContext('2d');
+  private preprocess(source: HTMLVideoElement | HTMLImageElement | HTMLCanvasElement): LetterboxMeta {
+    if (!this.prepCanvas) {
+      this.prepCanvas = document.createElement('canvas');
+      this.prepCanvas.width = 640;
+      this.prepCanvas.height = 640;
+    }
+    const ctx = this.prepCanvas.getContext('2d', { willReadFrequently: true });
     if (!ctx) throw new Error('Could not get 2d context');
 
-    // Draw and resize to 640x640
-    ctx.drawImage(source, 0, 0, 640, 640);
-    const imgData = ctx.getImageData(0, 0, 640, 640);
-    const { data } = imgData;
+    const { w: srcW, h: srcH } = this.getSourceDimensions(source);
+    const scale = Math.min(640 / Math.max(1, srcW), 640 / Math.max(1, srcH));
+    const newW = Math.round(srcW * scale);
+    const newH = Math.round(srcH * scale);
+    const padX = Math.floor((640 - newW) / 2);
+    const padY = Math.floor((640 - newH) / 2);
 
-    // Normalization to (1, 3, 640, 640) float32 in range [0, 1]
-    const float32Data = new Float32Array(3 * 640 * 640);
+    ctx.fillStyle = '#727272';
+    ctx.fillRect(0, 0, 640, 640);
+    ctx.drawImage(source, 0, 0, srcW, srcH, padX, padY, newW, newH);
+
+    const { data } = ctx.getImageData(0, 0, 640, 640);
+    const float32Data = this.floatBuffer;
     const totalPixels = 640 * 640;
 
     for (let i = 0; i < totalPixels; i++) {
-      const r = data[i * 4] / 255.0;
-      const g = data[i * 4 + 1] / 255.0;
-      const b = data[i * 4 + 2] / 255.0;
-
-      float32Data[i] = r;                    // Channel 0: R
-      float32Data[totalPixels + i] = g;      // Channel 1: G
-      float32Data[2 * totalPixels + i] = b;  // Channel 2: B
+      const idx = i * 4;
+      float32Data[i] = data[idx] / 255.0;
+      float32Data[totalPixels + i] = data[idx + 1] / 255.0;
+      float32Data[2 * totalPixels + i] = data[idx + 2] / 255.0;
     }
 
-    return new ort.Tensor('float32', float32Data, [1, 3, 640, 640]);
+    return {
+      tensor: new ort.Tensor('float32', float32Data, [1, 3, 640, 640]),
+      scale,
+      padX,
+      padY,
+      srcW,
+      srcH,
+    };
   }
 
   /**
-   * Run inference on image/video frame
+   * Run YOLOv8 inference on image/video frame and dispose WASM output tensors cleanly
    */
   public async detectFrame(source: HTMLVideoElement | HTMLImageElement | HTMLCanvasElement): Promise<DetectedObject[]> {
     if (!this.session || !this.isModelReady) {
@@ -114,17 +163,18 @@ class MobileYoloEngine {
       if (!ready || !this.session) return [];
     }
 
+    let meta: LetterboxMeta | null = null;
+    let results: ort.InferenceSession.OnnxValueMapType | null = null;
+
     try {
-      const inputTensor = this.preprocess(source);
+      meta = this.preprocess(source);
       const inputName = this.session.inputNames[0];
-      const results = await this.session.run({ [inputName]: inputTensor });
+      results = await this.session.run({ [inputName]: meta.tensor });
 
       const outputName = this.session.outputNames[0];
       const outputTensor = results[outputName];
       const data = outputTensor.data as Float32Array;
 
-      // Output shape is [1, 84, 8400]
-      // 84 = [x_center, y_center, width, height, ...80 class probabilities]
       const numBoxes = 8400;
       const numFeatures = 84;
       const detected: DetectedObject[] = [];
@@ -133,7 +183,6 @@ class MobileYoloEngine {
         let maxProb = 0;
         let bestClassIdx = -1;
 
-        // Find highest class confidence
         for (let c = 4; c < numFeatures; c++) {
           const prob = data[c * numBoxes + i];
           if (prob > maxProb) {
@@ -142,36 +191,53 @@ class MobileYoloEngine {
           }
         }
 
-        // Confidence filter > 45%
-        if (maxProb > 0.45 && bestClassIdx >= 0) {
-          const cx = data[0 * numBoxes + i] / 640;
-          const cy = data[1 * numBoxes + i] / 640;
-          const w = data[2 * numBoxes + i] / 640;
-          const h = data[3 * numBoxes + i] / 640;
+        if (maxProb > 0.42 && bestClassIdx >= 0) {
+          const cx640 = data[0 * numBoxes + i];
+          const cy640 = data[1 * numBoxes + i];
+          const w640 = data[2 * numBoxes + i];
+          const h640 = data[3 * numBoxes + i];
+
+          // Map unpadded letterbox coordinates back to [0..1] original image space
+          const x1 = Math.max(0, (cx640 - w640 / 2 - meta.padX) / (meta.scale * meta.srcW));
+          const y1 = Math.max(0, (cy640 - h640 / 2 - meta.padY) / (meta.scale * meta.srcH));
+          const x2 = Math.min(1, (cx640 + w640 / 2 - meta.padX) / (meta.scale * meta.srcW));
+          const y2 = Math.min(1, (cy640 + h640 / 2 - meta.padY) / (meta.scale * meta.srcH));
+
+          const bw = x2 - x1;
+          const bh = y2 - y1;
+          if (bw <= 0.015 || bh <= 0.015) continue;
 
           detected.push({
             className: COCO_CLASSES[bestClassIdx] || 'object',
             confidence: Math.round(maxProb * 100),
             box: {
-              x: Math.max(0, cx - w / 2),
-              y: Math.max(0, cy - h / 2),
-              width: Math.min(1, w),
-              height: Math.min(1, h)
-            }
+              x: x1,
+              y: y1,
+              width: bw,
+              height: bh,
+            },
           });
         }
       }
 
-      // Simple NMS / filter duplicates
       return this.filterTopDetections(detected);
-    } catch (err) {
-      console.error('Detection error:', err);
+    } catch (err: any) {
+      this.lastError = err?.message || 'Inference error';
       return [];
+    } finally {
+      if (results) {
+        Object.values(results).forEach((t: any) => {
+          try {
+            t?.dispose?.();
+          } catch {
+            // ignore
+          }
+        });
+      }
     }
   }
 
   private filterTopDetections(items: DetectedObject[]): DetectedObject[] {
-    // Real NMS (IoU) so one person is not counted many times
     const sorted = [...items].sort((a, b) => b.confidence - a.confidence);
     const kept: DetectedObject[] = [];
     const iou = (a: DetectedObject, b: DetectedObject) => {
@@ -185,23 +251,22 @@ class MobileYoloEngine {
     };
     for (const d of sorted) {
       if (kept.every((k) => k.className !== d.className || iou(k, d) < 0.45)) kept.push(d);
-      if (kept.length >= 15) break;
+      if (kept.length >= 16) break;
     }
     return kept;
   }
 
-  /**
-   * Start 24/7 Mobile Background Surveillance on active camera snapshot
-   */
   public startMobileBackgroundWorker(
     getSnapshotSrc: () => string | null,
     onDetection?: (results: DetectedObject[]) => void
   ) {
     if (this.isRunning) return;
     this.isRunning = true;
-    console.log('🚀 [Mobile YOLO]: Background mobile worker active (Running on Mobile CPU at ₹0)!');
+    let busy = false;
 
     this.detectionInterval = setInterval(async () => {
+      if (busy) return;
+      busy = true;
       try {
         const src = getSnapshotSrc();
         if (!src) return;
@@ -218,30 +283,27 @@ class MobileYoloEngine {
         const detections = await this.detectFrame(img);
         if (onDetection) onDetection(detections);
 
-        // 1. Footfall analysis (Strict Counter Customer Zone filter + 120s cooldown so sitting staff & street passersby are not counted)
         const counterCustomers = detections.filter((d) => {
-          if (d.className !== 'person' || d.confidence < 62) return false;
+          if (d.className !== 'person' || d.confidence < 52) return false;
           const cx = d.box.x + d.box.width / 2;
           const cy = d.box.y + d.box.height / 2;
           const ny2 = d.box.y + d.box.height;
-          if (cy > 0.44 || (cx > 0.44 && cy > 0.28)) return false; // sitting staff behind counter
-          if (ny2 < 0.38 || d.box.height < 0.22) return false; // street passersby
-          return cx >= 0.22 && cx <= 0.64 && ny2 >= 0.38 && ny2 <= 0.56;
+          if (cy > 0.62) return false;
+          if (ny2 < 0.32 || d.box.height < 0.18) return false;
+          return cx >= 0.14 && cx <= 0.78 && ny2 >= 0.32 && ny2 <= 0.78;
         });
         if (counterCustomers.length > this.lastPersonCount) {
           this.totalFootfallToday += counterCustomers.length - this.lastPersonCount;
         }
         this.lastPersonCount = counterCustomers.length;
-
-      } catch (e) {
-        // Continue loop silently
+      } catch {
+        // Ignore single frame failure
+      } finally {
+        busy = false;
       }
-    }, 3000); // Audit every 3 seconds on mobile CPU
+    }, 2500);
   }
 
-  /**
-   * Stop Mobile Worker
-   */
   public stopMobileBackgroundWorker() {
     this.isRunning = false;
     if (this.detectionInterval) {
@@ -254,8 +316,9 @@ class MobileYoloEngine {
     return {
       isReady: this.isModelReady,
       isLoading: this.isModelLoading,
+      lastError: this.lastError,
       isRunning: this.isRunning,
-      footfallToday: this.totalFootfallToday
+      footfallToday: this.totalFootfallToday,
     };
   }
 }

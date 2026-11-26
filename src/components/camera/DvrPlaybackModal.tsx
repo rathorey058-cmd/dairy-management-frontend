@@ -82,7 +82,7 @@ export const DvrPlaybackModal: React.FC<Props> = ({ isOpen, onClose, cameras }) 
           params: { date: playbackDate, startTime: playbackStartTime, endTime: playbackEndTime },
         }).catch(() => ({ data: null })),
         API.get('/cameras/playback/timeline', {
-          params: { date: playbackDate, startTime: playbackStartTime, endTime: playbackEndTime },
+          params: { date: playbackDate, startTime: playbackStartTime, endTime: playbackEndTime, includeImages: '1' },
         }).catch(() => ({ data: null })),
       ]);
 
@@ -147,7 +147,7 @@ export const DvrPlaybackModal: React.FC<Props> = ({ isOpen, onClose, cameras }) 
 
       // Load REAL recorded AI events for the chosen window + auto-run report
       const tl = await API.get('/cameras/playback/timeline', {
-        params: { date: playbackDate, startTime: playbackStartTime, endTime: playbackEndTime },
+        params: { date: playbackDate, startTime: playbackStartTime, endTime: playbackEndTime, includeImages: '1' },
       });
       setTimeline(tl.data);
       handleFastAiAudit();
@@ -167,7 +167,7 @@ export const DvrPlaybackModal: React.FC<Props> = ({ isOpen, onClose, cameras }) 
           tries += 1;
           try {
             const tl2 = await API.get('/cameras/playback/timeline', {
-              params: { date: playbackDate, startTime: playbackStartTime, endTime: playbackEndTime },
+              params: { date: playbackDate, startTime: playbackStartTime, endTime: playbackEndTime, includeImages: '1' },
             });
             setTimeline(tl2.data);
             const imgs2 = (tl2.data?.events || []).filter((ev: any) => ev.image && !String(ev.image).startsWith('SCAN_REQ:'));
@@ -486,7 +486,7 @@ export const DvrPlaybackModal: React.FC<Props> = ({ isOpen, onClose, cameras }) 
         {/* Footer */}
         <div className="p-4 bg-dark-950 border-t border-dark-800 flex items-center justify-between shrink-0">
           <p className="text-xs text-dark-400">
-            DVR IP: 192.168.31.129 • हार्ड डिस्क स्टोरेज सुरक्षित रूप से इन-ऐप स्ट्रीम हो रहा है।
+            DVR IP: {cameras.find((c) => c._id === selectedCamId)?.ipAddress || cameras[0]?.ipAddress || 'Auto'} • हार्ड डिस्क स्टोरेज सुरक्षित रूप से इन-ऐप स्ट्रीम हो रहा है।
           </p>
           <button
             onClick={onClose}

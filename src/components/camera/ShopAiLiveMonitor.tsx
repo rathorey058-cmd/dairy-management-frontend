@@ -261,8 +261,9 @@ export const ShopAiLiveMonitor: React.FC<Props> = ({
             });
             const objectUrl = URL.createObjectURL(res.data);
             setGridSnapshots((prev) => {
-              if (prev[cam._id] && prev[cam._id].startsWith('blob:')) {
-                URL.revokeObjectURL(prev[cam._id]);
+              const oldUrl = prev[cam._id];
+              if (oldUrl && oldUrl.startsWith('blob:') && oldUrl !== objectUrl) {
+                setTimeout(() => URL.revokeObjectURL(oldUrl), 7000);
               }
               return { ...prev, [cam._id]: objectUrl };
             });

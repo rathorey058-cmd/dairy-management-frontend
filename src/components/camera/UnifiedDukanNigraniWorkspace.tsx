@@ -1,14 +1,20 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { io as createSocket } from 'socket.io-client';
 import API from '../../api';
+import { useAuth } from '../../context/AuthContext';
+import { mobileYolo } from '../../services/mobileYoloService';
 import {
   Video, Upload, Camera, Mic, MicOff, Volume2, VolumeX,
   Play, Pause, Trash2, RotateCcw, ShieldAlert, LayoutGrid,
   Maximize2, Minimize2, FileBarChart2, HardDrive, Settings,
-  Palette, ArrowLeftRight, Compass, Crown
+  Palette, ArrowLeftRight, Compass, Crown, Activity, Cpu
 } from 'lucide-react';
-import { UnifiedStore360View } from './UnifiedStore360View';
+import { UnifiedStore360View, type LiveTelemetryProp } from './UnifiedStore360View';
 import { VisualPairingModal } from './VisualPairingModal';
+import { AiTrainerStudioModal } from './AiTrainerStudioModal';
 import { parseVisitsFromTimeline } from './QuickReportModal';
+import { aiBrainService, compute96DFeatureVector, extractSpokenPersonNames } from '../../services/aiBrainService';
+import type { DetectedObject } from '../../services/mobileYoloService';
 
 type ZoneType = 'gate' | 'customer' | 'tank' | 'ignore' | 'galla';
 
@@ -92,14 +98,38 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
   onOpenDvrPlayback,
   onOpenCameraSettings,
 }) => {
+  const { user, tenant } = useAuth();
+  const activeTenantId = String(tenant?._id || tenant?.id || user?.tenantId || '');
+
   // Video source & multi-cam layout state
   const [sourceMode, setSourceMode] = useState<'DVR' | 'FILE' | 'WEBCAM'>('DVR');
   const [showTesla3D, setShowTesla3D] = useState<boolean>(true);
   const [isPairingModalOpen, setIsPairingModalOpen] = useState<boolean>(false);
+  const [isTrainerModalOpen, setIsTrainerModalOpen] = useState<boolean>(false);
+  const [testVideoChannel, setTestVideoChannel] = useState<number>(1);
+  const [videoTestFrameUrl, setVideoTestFrameUrl] = useState<string | null>(null);
+  const [routineAnomalyBanner, setRoutineAnomalyBanner] = useState<string | null>(null);
   const [pairingBlocks, setPairingBlocks] = useState<any[]>([]);
   const [focusedCamId, setFocusedCamId] = useState<string | null>(null); // null = show ALL cameras in grid
   const [dvrFrames, setDvrFrames] = useState<Record<string, string>>({});
   const [dvrStatus, setDvrStatus] = useState<Record<string, 'LIVE' | 'OFFLINE'>>({});
+  const [liveTelemetry, setLiveTelemetry] = useState<LiveTelemetryProp | null>(null);
+  const [localGallaPulseAt, setLocalGallaPulseAt] = useState<number>(0);
+  const [pipelineHealth, setPipelineHealth] = useState<{
+    socketConnected: boolean;
+    dvrBridgeOnline: boolean;
+    edgeAiOnline: boolean;
+    recorderOnline: boolean;
+    freshCamerasCount: number;
+    yoloReady: boolean;
+  }>({
+    socketConnected: false,
+    dvrBridgeOnline: false,
+    edgeAiOnline: false,
+    recorderOnline: false,
+    freshCamerasCount: 0,
+    yoloReady: false,
+  });
 
   // Video file / webcam state
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
@@ -187,36 +217,48 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
 
   useEffect(() => {
     fetchPairingBlocks();
-    const todayStr = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().split('T')[0];
-    API.get('/cameras/playback/timeline', { params: { date: todayStr, startTime: '00:00', endTime: '23:59' } })
-      .then((res) => {
-        const visits = parseVisitsFromTimeline(res.data);
-        if (visits.length > 0) {
-          const totalCust = visits.reduce((acc, v) => acc + v.people, 0);
-          const totalCash = visits.reduce((acc, v) => acc + v.amountPaid, 0);
-          const gallaCnt = visits.filter((v) => v.gallaDeposited).length;
-          setCustomerZoneCount((prev) => Math.max(prev, totalCust));
-          setGallaMotionCount((prev) => Math.max(prev, gallaCnt));
-          setEnteredCash((prev) => Math.max(prev, totalCash));
-        }
-      })
-      .catch(() => {});
+    const syncTodayFromTimeline = () => {
+      const todayStr = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().split('T')[0];
+      API.get('/cameras/playback/timeline', { params: { date: todayStr, startTime: '00:00', endTime: '23:59' } })
+        .then((res) => {
+          const visits = parseVisitsFromTimeline(res.data);
+          if (visits.length > 0) {
+            const totalCust = visits.reduce((acc, v) => acc + v.people, 0);
+            const totalCash = visits.reduce((acc, v) => acc + v.amountPaid, 0);
+            const gallaCnt = visits.filter((v) => v.gallaDeposited).length;
+            setCustomerZoneCount((prev) => Math.max(prev, totalCust));
+            setGallaMotionCount((prev) => Math.max(prev, gallaCnt));
+            setEnteredCash((prev) => Math.max(prev, totalCash));
+          }
+        })
+        .catch(() => {});
+    };
+    syncTodayFromTimeline();
+    const tlInterval = setInterval(syncTodayFromTimeline, 22000);
+    return () => clearInterval(tlInterval);
   }, [fetchPairingBlocks]);
 
+  // Warm up On-Device YOLO & track readiness for Health Diagnostics Bar
   useEffect(() => {
-    zonesRef.current = zones;
-    try {
-      localStorage.setItem('dukan_nigrani_zones_v2', JSON.stringify(zones));
-    } catch { /* ignore */ }
-  }, [zones]);
+    let mounted = true;
+    mobileYolo.initModel().then((ready) => {
+      if (mounted) setPipelineHealth((p) => ({ ...p, yoloReady: ready }));
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
-  // Bidirectional MongoDB Slab Sync: Load saved VisualPairingBlocks on camera load
+  // Bidirectional MongoDB Slab Sync: Load saved VisualPairingBlocks on camera load (handles both {blocks:[]} and [])
   useEffect(() => {
     if (!cameras || cameras.length === 0) return;
     let alive = true;
     API.get('/cameras/pairing-blocks')
       .then((res) => {
-        if (!alive || !Array.isArray(res.data)) return;
+        if (!alive) return;
+        const rawBlocks = Array.isArray(res.data) ? res.data : (res.data?.blocks || []);
+        if (!Array.isArray(rawBlocks)) return;
+        setPairingBlocks(rawBlocks);
         const revCat: Record<string, ZoneType> = {
           GALLA: 'galla',
           GATE_TRIPWIRE: 'gate',
@@ -226,7 +268,7 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
           CUSTOM: 'customer',
         };
         const mapped: DrawnZone[] = [];
-        res.data.forEach((blk: any) => {
+        rawBlocks.forEach((blk: any) => {
           const cam = cameras.find((c) => Number(c.channel || 1) === Number(blk.cameraChannel || 1));
           if (!cam || !blk.coordinates) return;
           const x1 = Math.max(0, Math.min(1, Number(blk.coordinates.x || 0) / 100));
@@ -259,6 +301,13 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
       .catch(() => {});
     return () => { alive = false; };
   }, [cameras]);
+
+  useEffect(() => {
+    zonesRef.current = zones;
+    try {
+      localStorage.setItem('dukan_nigrani_zones_v2', JSON.stringify(zones));
+    } catch { /* ignore */ }
+  }, [zones]);
 
   useEffect(() => { dragStateRef.current = dragState; }, [dragState]);
   useEffect(() => { standingRef.current = standingZones; }, [standingZones]);
@@ -352,7 +401,131 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
     appendLog('DVR मल्टी-कैमरा', `${cameras.length || 0} कैमरों का लाइव फीड चालू`, 'info');
   };
 
-  // Staggered Multi-Camera DVR Snapshot Polling (handles 3, 4, 5+ cameras smoothly without choking DVR)
+  // Real-Time Socket.IO + Live Telemetry Auto-Sync (Edge AI + DVR Bridge + Audio + Counters)
+  const lastEdgeTranscriptStampRef = useRef<string>('');
+  const dvrFramesLatestRef = useRef<Record<string, string>>({});
+  useEffect(() => {
+    dvrFramesLatestRef.current = dvrFrames;
+  }, [dvrFrames]);
+
+  useEffect(() => {
+    let alive = true;
+    const applyTelemetryState = (tele: any, health?: any) => {
+      if (!alive || !tele) return;
+      setLiveTelemetry(tele);
+      if (health) {
+        setPipelineHealth((prev) => ({
+          ...prev,
+          edgeAiOnline: Boolean(health.edgeAiOnline),
+          recorderOnline: Boolean(health.recorderHeartbeatOnline),
+          dvrBridgeOnline: Boolean(health.dvrBridgeOnline),
+          freshCamerasCount: Number(health.freshCamerasCount || 0),
+        }));
+      } else if (tele.updatedAt) {
+        const fresh = Date.now() - tele.updatedAt < 12000;
+        setPipelineHealth((prev) => ({ ...prev, edgeAiOnline: fresh, recorderOnline: fresh || prev.recorderOnline }));
+      }
+
+      if (tele.countersToday) {
+        if (tele.countersToday.customers > 0) {
+          setCustomerZoneCount((prev) => Math.max(prev, Number(tele.countersToday.customers)));
+        }
+        if (tele.countersToday.gallaOpenings > 0) {
+          setGallaMotionCount((prev) => Math.max(prev, Number(tele.countersToday.gallaOpenings)));
+        }
+        if (tele.countersToday.unbilledAlerts > 0) {
+          setTheftAlertCount((prev) => Math.max(prev, Number(tele.countersToday.unbilledAlerts)));
+        }
+      }
+
+      const tr = tele.audio?.lastTranscript;
+      if (tr?.text && tr?.at && lastEdgeTranscriptStampRef.current !== tr.at) {
+        lastEdgeTranscriptStampRef.current = tr.at;
+        setLastHeardText(tr.text);
+        const amtTxt = Array.isArray(tr.amounts) && tr.amounts.length > 0 ? ` (₹${tr.amounts[tr.amounts.length - 1]})` : '';
+        appendLog('DVR ऑडियो AI', `“${tr.text}”${amtTxt}`, 'voice', 'माइक Ch#1');
+      }
+    };
+
+    const pollTelemetry = async () => {
+      try {
+        const res = await API.get('/cameras/live-telemetry');
+        if (!alive || !res.data?.success) return;
+        applyTelemetryState(res.data.telemetry, res.data.health);
+      } catch {
+        // Ignore transient network error
+      }
+    };
+
+    pollTelemetry();
+    const pollIv = setInterval(pollTelemetry, 5500);
+
+    const socketBaseUrl = (API.defaults.baseURL || 'https://dairy-management-backendd.onrender.com/api').replace(/\/api\/?$/, '');
+    const socket = createSocket(socketBaseUrl, {
+      transports: ['websocket', 'polling'],
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 1500,
+    });
+
+    socket.on('connect', () => {
+      if (!alive) return;
+      setPipelineHealth((p) => ({ ...p, socketConnected: true }));
+      if (activeTenantId) {
+        socket.emit('camera:join_live', activeTenantId);
+      }
+    });
+
+    socket.on('disconnect', () => {
+      if (alive) setPipelineHealth((p) => ({ ...p, socketConnected: false }));
+    });
+
+    socket.on('camera:live_telemetry', (payload: any) => {
+      applyTelemetryState(payload);
+    });
+
+    socket.on('camera:ai_brain_updated', (ev: any) => {
+      aiBrainService.refreshBrain(true);
+      if (ev?.anomaly?.detail) {
+        setRoutineAnomalyBanner(`${ev.anomaly.title}: ${ev.anomaly.detail}`);
+        appendLog('AI रूटीन अलर्ट', ev.anomaly.detail, 'alert', 'AI ब्रेन');
+      } else if (ev?.person?.isNameConfirmed && ev?.person?.label) {
+        appendLog('AI स्व-पहचान', `नया नाम पक्का हुआ: “${ev.person.label}” (${ev.person.visitCount || 1} बार दिखा)`, 'customer', 'AI ब्रेन');
+      }
+    });
+
+    const lastPushFetchRef: Record<string, number> = {};
+    socket.on('camera:frame_ready', (ev: { cameraId?: string }) => {
+      if (!alive || sourceMode !== 'DVR' || !ev?.cameraId) return;
+      const cid = ev.cameraId;
+      const now = Date.now();
+      if (now - (lastPushFetchRef[cid] || 0) < 850) return;
+      lastPushFetchRef[cid] = now;
+      API.get(`/cameras/${cid}/live-snapshot`, { params: { t: now }, responseType: 'blob', timeout: 4000 })
+        .then((res) => {
+          if (!alive) return;
+          const blobUrl = URL.createObjectURL(res.data);
+          setDvrFrames((prev) => {
+            const oldUrl = prev[cid];
+            if (oldUrl && oldUrl !== blobUrl) {
+              setTimeout(() => URL.revokeObjectURL(oldUrl), 7000);
+            }
+            return { ...prev, [cid]: blobUrl };
+          });
+          setDvrStatus((prev) => ({ ...prev, [cid]: 'LIVE' }));
+          setPipelineHealth((p) => ({ ...p, dvrBridgeOnline: true }));
+        })
+        .catch(() => {});
+    });
+
+    return () => {
+      alive = false;
+      clearInterval(pollIv);
+      socket.disconnect();
+    };
+  }, [activeTenantId, sourceMode, appendLog]);
+
+  // Staggered Multi-Camera DVR Snapshot Polling (Delayed Blob Cleanup -> 0 Texture Errors & 0 Memory Leaks)
   useEffect(() => {
     if (sourceMode !== 'DVR' || cameras.length === 0) return;
     let alive = true;
@@ -368,7 +541,10 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
         if (!alive) return;
         const blobUrl = URL.createObjectURL(res.data);
         setDvrFrames((prev) => {
-          if (prev[cam._id]) URL.revokeObjectURL(prev[cam._id]);
+          const oldUrl = prev[cam._id];
+          if (oldUrl && oldUrl !== blobUrl) {
+            setTimeout(() => URL.revokeObjectURL(oldUrl), 7000);
+          }
           return { ...prev, [cam._id]: blobUrl };
         });
         setDvrStatus((prev) => ({ ...prev, [cam._id]: 'LIVE' }));
@@ -384,7 +560,7 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
         pollCamera(cam);
         const iv = setInterval(() => {
           if (alive) pollCamera(cam);
-        }, Math.max(1400, cameras.length * 420));
+        }, Math.max(1500, cameras.length * 420));
         timers.push(iv);
       }, idx * 350);
       timers.push(startTimer);
@@ -402,6 +578,9 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
   useEffect(() => {
     return () => {
       stopWebcam();
+      Object.values(dvrFramesLatestRef.current).forEach((u) => {
+        try { URL.revokeObjectURL(u); } catch { /* ignore */ }
+      });
       micDesiredRef.current = false;
       if (recognitionRef.current) {
         try { recognitionRef.current.stop(); } catch { /* ignore */ }
@@ -510,7 +689,43 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
     } else {
       appendLog('माइक', `सुना गया: “${clean}”`, 'info', 'ऑडियो');
     }
-  }, [appendLog]);
+
+    // Self-Supervised Voice-to-Face Name Learning: if a person is visible in Ch#1 (Live DVR or Test Video), vote spoken names!
+    const spokenNames = extractSpokenPersonNames(clean);
+    if (spokenNames.length > 0) {
+      const ch1Cam = cameras.find((c, idx) => Number(c.channel || idx + 1) === 1) || cameras[0];
+      const activeVisualEl: HTMLVideoElement | HTMLImageElement | null =
+        sourceMode !== 'DVR' ? videoRef.current : ch1Cam ? dvrImgRefs.current[ch1Cam._id] : null;
+      if (activeVisualEl) {
+        mobileYolo
+          .detectFrame(activeVisualEl)
+          .then((dets: DetectedObject[]) => {
+            const persons = dets.filter((d) => d.className === 'person' && d.confidence >= 48);
+            if (persons.length === 1) {
+              const p = persons[0];
+              const feat = compute96DFeatureVector(activeVisualEl, {
+                x: p.box.x,
+                y: p.box.y,
+                width: p.box.width,
+                height: p.box.height * 0.62,
+              });
+              if (feat) {
+                API.post('/cameras/ai-brain/observe-person', {
+                  channel: 1,
+                  featureVector: feat.vector,
+                  thumbnailBase64: feat.thumbnailBase64,
+                  spokenNames,
+                  fromVideoTest: sourceMode !== 'DVR',
+                })
+                  .then(() => aiBrainService.refreshBrain(true))
+                  .catch(() => {});
+              }
+            }
+          })
+          .catch(() => {});
+      }
+    }
+  }, [appendLog, cameras, sourceMode]);
 
   // Reliable Auto-Restarting Chrome Web Speech API Mic
   const toggleMic = () => {
@@ -730,6 +945,7 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
                 if (ratio > 0.068 && now - st.lastTriggerAt > 3500) {
                   st.lastTriggerAt = now;
                   lastGallaEventRef.current = now;
+                  setLocalGallaPulseAt(now);
                   setGallaMotionCount((c) => c + 1);
                   appendLog(z.name, 'गल्ले पर हलचल', 'galla', cameraLabel);
 
@@ -1006,6 +1222,73 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
     if (videoRef.current) videoRef.current.muted = next;
   };
 
+  // Bridge Uploaded Test Video / Webcam directly into the 3D Tesla Twin (`videoTestFrameUrl`) so Test Mode = 100% Live 3D Parity!
+  useEffect(() => {
+    if (sourceMode === 'DVR') {
+      setVideoTestFrameUrl(null);
+      return;
+    }
+    const grabCanvas = document.createElement('canvas');
+    grabCanvas.width = 640;
+    grabCanvas.height = 360;
+    const gctx = grabCanvas.getContext('2d');
+
+    const captureTestFrame = () => {
+      const v = videoRef.current;
+      if (!v || v.readyState < 2 || !gctx) return;
+      gctx.drawImage(v, 0, 0, 640, 360);
+      setVideoTestFrameUrl(grabCanvas.toDataURL('image/jpeg', 0.78));
+    };
+
+    const iv = setInterval(captureTestFrame, 850);
+    captureTestFrame();
+    return () => clearInterval(iv);
+  }, [sourceMode, videoUrl, isPlaying]);
+
+  const launchVideoFromTrainerIn3D = useCallback((file: File, ch: number) => {
+    stopWebcam();
+    if (videoUrl) URL.revokeObjectURL(videoUrl);
+    const url = URL.createObjectURL(file);
+    setTestVideoChannel(ch);
+    setSourceMode('FILE');
+    setShowTesla3D(true);
+    setVideoUrl(url);
+    setVideoFileName(file.name);
+    delete prevFramesRef.current['FILE'];
+    setTimeout(() => {
+      if (videoRef.current) {
+        videoRef.current.srcObject = null;
+        videoRef.current.src = url;
+        videoRef.current.play().then(() => setIsPlaying(true)).catch(() => {});
+      }
+    }, 80);
+    appendLog('3D टेस्ट मोड', `फुटेज "${file.name}" को Ch#${ch} पर Tesla 3D मॉडल के साथ लाइव जोड़ा गया`, 'info');
+  }, [videoUrl, appendLog]);
+
+  const effective3DCameras = (() => {
+    if (sourceMode === 'DVR') return cameras;
+    const matched = cameras.find((c, idx) => Number(c.channel || idx + 1) === Number(testVideoChannel));
+    if (matched) return cameras;
+    return [
+      ...cameras,
+      {
+        _id: `virtual-test-ch-${testVideoChannel}`,
+        name: `टेस्ट फुटेज (Ch#${testVideoChannel})`,
+        channel: testVideoChannel,
+        ipAddress: 'TEST-MODE',
+        locationType: 'TEST_SIMULATION',
+        status: 'ONLINE',
+      },
+    ];
+  })();
+
+  const effective3DSnapshots = (() => {
+    if (sourceMode === 'DVR' || !videoTestFrameUrl) return dvrFrames;
+    const matched = effective3DCameras.find((c, idx) => Number(c.channel || idx + 1) === Number(testVideoChannel));
+    if (!matched) return dvrFrames;
+    return { ...dvrFrames, [matched._id]: videoTestFrameUrl };
+  })();
+
   const visibleCameras = focusedCamId ? cameras.filter((c) => c._id === focusedCamId) : cameras;
   const gridColsClass =
     focusedCamId || visibleCameras.length <= 1
@@ -1044,6 +1327,15 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
           >
             <Compass className="w-3.5 h-3.5" />
             <span>🛸 3D Tesla व्यू {showTesla3D ? 'ON' : 'OFF'}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsTrainerModalOpen(true)}
+            className="px-3 py-2 rounded-xl text-xs font-extrabold bg-emerald-500/15 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/25 flex items-center gap-1.5 shadow"
+          >
+            <Cpu className="w-3.5 h-3.5 text-emerald-400" />
+            <span>🧠 AI ट्रेनर व टेस्ट लैब</span>
           </button>
 
           <button
@@ -1132,15 +1424,133 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* Three.js WebGL 60FPS Tesla FSD 3D Reality View */}
+      {/* Live System Health & Setup Diagnostics Bar (Always-On Instant Visibility) */}
+      <div className="bg-slate-950 border border-slate-800 rounded-2xl px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 text-xs shadow-md">
+        <div className="flex items-center gap-2 font-bold text-slate-200">
+          <Activity className="w-4 h-4 text-sky-400" />
+          <span>लाइव सिस्टम हेल्थ:</span>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          {/* 1. DVR Camera Feed / Bridge Status */}
+          {(() => {
+            const liveCamCnt = Object.values(dvrStatus).filter((s) => s === 'LIVE').length;
+            const dvrOk = liveCamCnt > 0 || pipelineHealth.dvrBridgeOnline;
+            return (
+              <span
+                className={`px-2.5 py-1 rounded-xl border font-semibold flex items-center gap-1.5 ${
+                  dvrOk
+                    ? 'bg-emerald-500/10 border-emerald-500/35 text-emerald-300'
+                    : 'bg-amber-500/10 border-amber-500/35 text-amber-300'
+                }`}
+              >
+                <span className={`w-2 h-2 rounded-full ${dvrOk ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+                <span>
+                  DVR ब्रिज: {dvrOk ? `LIVE (${Math.max(liveCamCnt, pipelineHealth.freshCamerasCount)}/${cameras.length || 0} कैमरे)` : sourceMode !== 'DVR' ? sourceMode : 'कनेक्ट हो रहा है'}
+                </span>
+              </span>
+            );
+          })()}
+
+          {/* 2. Python Edge AI Engine Status */}
+          <span
+            className={`px-2.5 py-1 rounded-xl border font-semibold flex items-center gap-1.5 ${
+              pipelineHealth.edgeAiOnline
+                ? 'bg-emerald-500/10 border-emerald-500/35 text-emerald-300'
+                : pipelineHealth.recorderOnline
+                ? 'bg-sky-500/10 border-sky-500/35 text-sky-300'
+                : 'bg-slate-900 border-slate-700 text-slate-300'
+            }`}
+            title="दुकान के PC पर start_edge_ai.bat चालू रहने पर 24/7 YOLO + ऑडियो रिंग चलता है"
+          >
+            <span
+              className={`w-2 h-2 rounded-full ${
+                pipelineHealth.edgeAiOnline
+                  ? 'bg-emerald-400 animate-pulse'
+                  : pipelineHealth.recorderOnline
+                  ? 'bg-sky-400'
+                  : 'bg-slate-500'
+              }`}
+            />
+            <span>
+              Edge AI Python: {pipelineHealth.edgeAiOnline ? 'LIVE (24/7 सिंक)' : pipelineHealth.recorderOnline ? 'बैकग्राउंड चालू' : 'ब्राउज़र AI मोड'}
+            </span>
+          </span>
+
+          {/* 3. Live Audio / Mic Level Meter */}
+          {(() => {
+            const rms = liveTelemetry?.audio?.rms || 0;
+            const pct = Math.min(100, Math.round((rms / 9000) * 100));
+            const audioLive = micActive || pipelineHealth.edgeAiOnline;
+            return (
+              <span
+                className={`px-2.5 py-1 rounded-xl border font-semibold flex items-center gap-2 ${
+                  audioLive
+                    ? 'bg-emerald-500/10 border-emerald-500/35 text-emerald-300'
+                    : 'bg-slate-900 border-slate-700 text-slate-300'
+                }`}
+              >
+                <span className={`w-2 h-2 rounded-full ${audioLive ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'}`} />
+                <span>माइक ऑडियो: {micActive ? 'ब्राउज़र LIVE' : pipelineHealth.edgeAiOnline ? 'DVR RTSP LIVE' : 'स्टैंडबाय'}</span>
+                {pipelineHealth.edgeAiOnline && (
+                  <span className="w-12 h-1.5 rounded-full bg-slate-800 overflow-hidden inline-block">
+                    <span
+                      className="h-full bg-emerald-400 block transition-all duration-300"
+                      style={{ width: `${Math.max(8, pct)}%` }}
+                    />
+                  </span>
+                )}
+              </span>
+            );
+          })()}
+
+          {/* 4. 3D Tracker + Real-Time Socket Status */}
+          <span
+            className={`px-2.5 py-1 rounded-xl border font-semibold flex items-center gap-1.5 ${
+              pipelineHealth.yoloReady || pipelineHealth.edgeAiOnline
+                ? 'bg-sky-500/10 border-sky-500/35 text-sky-300'
+                : 'bg-amber-500/10 border-amber-500/35 text-amber-300'
+            }`}
+          >
+            <span
+              className={`w-2 h-2 rounded-full ${
+                pipelineHealth.socketConnected ? 'bg-sky-400 animate-pulse' : 'bg-amber-400'
+              }`}
+            />
+            <span>
+              3D ट्रैकर: {pipelineHealth.yoloReady || pipelineHealth.edgeAiOnline ? '60FPS LIVE' : 'लोड हो रहा है'} • सॉकेट {pipelineHealth.socketConnected ? 'ON' : 'SYNC'}
+            </span>
+          </span>
+        </div>
+      </div>
+
+      {routineAnomalyBanner && (
+        <div className="px-4 py-2.5 rounded-2xl bg-amber-950/75 border border-amber-500/50 flex items-center justify-between gap-3 text-xs text-amber-200 font-semibold">
+          <span>🧠 {routineAnomalyBanner}</span>
+          <button
+            type="button"
+            onClick={() => setRoutineAnomalyBanner(null)}
+            className="px-2 py-0.5 rounded bg-amber-900/60 text-amber-100 text-[11px]"
+          >
+            ठीक है
+          </button>
+        </div>
+      )}
+
+      {/* Three.js WebGL 60FPS Tesla FSD 3D Reality View (Works identically on Live DVR AND Uploaded Test Footage!) */}
       {showTesla3D && (
         <UnifiedStore360View
-          cameras={cameras}
-          gridSnapshots={dvrFrames}
+          cameras={effective3DCameras}
+          gridSnapshots={effective3DSnapshots}
           pairingBlocks={pairingBlocks}
+          liveTelemetry={sourceMode === 'DVR' ? liveTelemetry : null}
+          localSpeechQuote={lastHeardText}
+          localGallaPulseAt={localGallaPulseAt}
           onSelectSingleCamera={(camId) => {
-            setSourceMode('DVR');
-            setFocusedCamId(camId);
+            if (!camId.startsWith('virtual-test-')) {
+              setSourceMode('DVR');
+              setFocusedCamId(camId);
+            }
           }}
           onOpenVisualPairingForChannel={() => setIsPairingModalOpen(true)}
           todayStats={{
@@ -1149,6 +1559,18 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
           }}
         />
       )}
+
+      {/* In-Software Self-Learning AI Model Trainer & Video-to-3D Test Studio */}
+      <AiTrainerStudioModal
+        isOpen={isTrainerModalOpen}
+        onClose={() => setIsTrainerModalOpen(false)}
+        cameras={cameras}
+        dvrFrames={dvrFrames}
+        onLaunchVideoIn3DTest={launchVideoFromTrainerIn3D}
+        onBrainUpdated={() => {
+          aiBrainService.refreshBrain(true);
+        }}
+      />
 
       {/* Visual Pairing & Plan Slabs Modal */}
       <VisualPairingModal
@@ -1320,7 +1742,7 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
 
                 {sourceMode === 'FILE' && videoUrl && (
                   <div className="flex flex-wrap items-center justify-between gap-2 text-xs pt-1">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <button
                         type="button"
                         onClick={togglePlayPause}
@@ -1329,7 +1751,26 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
                         {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
                         <span>{isPlaying ? 'रोकें' : 'चलाएँ'}</span>
                       </button>
-                      <span className="text-dark-400 truncate max-w-[240px]">{videoFileName}</span>
+                      <select
+                        value={testVideoChannel}
+                        onChange={(e) => setTestVideoChannel(Number(e.target.value))}
+                        className="px-2.5 py-1.5 rounded-lg bg-dark-950 border border-dark-700 text-xs text-sky-300 font-semibold"
+                        title="इस टेस्ट फुटेज को किस 3D कैमरा ज़ोन पर चलाना है?"
+                      >
+                        <option value={1}>3D मैप: Ch#1 काउंटर</option>
+                        <option value={2}>3D मैप: Ch#2 गल्ला/फ्रीजर</option>
+                        <option value={3}>3D मैप: Ch#3 रैक/कांटा</option>
+                        <option value={4}>3D मैप: Ch#4 मुख्य गेट</option>
+                        <option value={5}>3D मैप: Ch#5 सड़क</option>
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => setIsTrainerModalOpen(true)}
+                        className="px-2.5 py-1.5 rounded-lg bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 font-semibold"
+                      >
+                        🧠 इस वीडियो से सिखाएँ
+                      </button>
+                      <span className="text-dark-400 truncate max-w-[200px]">{videoFileName}</span>
                     </div>
                     <button
                       type="button"

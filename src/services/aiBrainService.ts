@@ -1,0 +1,311 @@
+import API from '../api';
+
+export interface LearnedObjectItem {
+  _id: string;
+  label: string;
+  objectCategory: 'CAN' | 'PATILA' | 'CRATE' | 'PACKET' | 'SCALE' | 'GALLA_OPEN' | 'GALLA_CLOSED' | 'STAFF_UNIFORM' | 'IGNORE' | 'CUSTOM';
+  channel: number;
+  featureVector: number[];
+  box?: { x: number; y: number; width: number; height: number };
+  thumbnailBase64?: string;
+  matchCount?: number;
+  verifiedByOwner?: boolean;
+}
+
+export interface LearnedPersonItem {
+  _id: string;
+  clusterCode?: string;
+  label: string;
+  personRole: 'NEW_VISITOR' | 'REGULAR_CUSTOMER' | 'STAFF' | 'FARMER';
+  isNameConfirmed?: boolean;
+  lockedByOwner?: boolean;
+  channel: number;
+  featureVector: number[];
+  thumbnailBase64?: string;
+  visitCount: number;
+  visitDays?: string[];
+  typicalHours?: number[];
+  usualItems?: string[];
+  candidateNames?: Array<{ name: string; votes: number; source: string }>;
+  lastSeenAt?: string;
+}
+
+export interface RoutineStats {
+  modelVersion: number;
+  accuracyScore: number;
+  totalFramesTrained: number;
+  totalVideosTrained: number;
+  hourlyCustomerBaseline: number[];
+  hourlyGallaBaseline: number[];
+  daysObserved: number;
+  learnedVocabulary: string[];
+  recentAnomalies: Array<{
+    at: string;
+    severity: 'INFO' | 'WARN' | 'HIGH';
+    title: string;
+    detail: string;
+    channel?: number;
+  }>;
+  lastNightlyTrainAt?: string;
+}
+
+const NON_NAME_STOPWORDS = new Set([
+  'दूध', 'दुध', 'दही', 'छाछ', 'मट्ठा', 'पनीर', 'घी', 'मावा', 'खोया', 'लस्सी', 'मक्खन', 'बटर',
+  'लीटर', 'किलो', 'ग्राम', 'पैकेट', 'थैली', 'कैन', 'केन', 'गल्ला', 'काउंटर', 'हिसाब', 'पैसे',
+  'रुपये', 'रुपए', 'नकद', 'उधार', 'उधारी', 'खाता', 'खाते', 'बिल', 'पर्ची', 'चिल्लर', 'नोट',
+  'भैया', 'भाई', 'जी', 'अरे', 'ओ', 'हाँ', 'हां', 'ना', 'नहीं', 'आज', 'कल', 'अभी', 'थोड़ा',
+  'आधा', 'पाव', 'एक', 'दो', 'तीन', 'चार', 'पाँच', 'पांच', 'दस', 'बीस', 'तीस', 'चालीस', 'पचास',
+  'साठ', 'सौ', 'देना', 'दे', 'दो', 'लो', 'लेना', 'डालो', 'रखो', 'बताओ', 'कितना', 'कितने',
+  'मेरा', 'तेरा', 'अपना', 'उनका', 'किसान', 'ग्राहक', 'स्टाफ', 'दुकान', 'डेयरी', 'सुबह', 'शाम',
+]);
+
+const HONORIFICS = ['जी', 'भाई', 'भैया', 'चाचा', 'काका', 'बाबू', 'ताऊ', 'सेठ', 'अंकल', 'आंटी', 'दीदी', 'मामा'];
+
+let sharedFeatCanvas: HTMLCanvasElement | null = null;
+
+/**
+ * Compute 96-D L2-normalized Spatial-Chrominance-Edge Feature Vector from any Image/Video crop.
+ * Matches `compute_96d_feature_vector` in `edge_ai/ai_brain.py` so Browser & Python share 100% of learned knowledge!
+ */
+export function compute96DFeatureVector(
+  source: HTMLImageElement | HTMLVideoElement | HTMLCanvasElement,
+  normBox: { x: number; y: number; width: number; height: number }
+): { vector: number[]; thumbnailBase64: string } | null {
+  try {
+    const srcW =
+      source instanceof HTMLVideoElement
+        ? source.videoWidth
+        : source instanceof HTMLImageElement
+        ? source.naturalWidth || source.width
+        : source.width;
+    const srcH =
+      source instanceof HTMLVideoElement
+        ? source.videoHeight
+        : source instanceof HTMLImageElement
+        ? source.naturalHeight || source.height
+        : source.height;
+    if (!srcW || !srcH) return null;
+
+    const sx = Math.max(0, Math.min(srcW - 4, normBox.x * srcW));
+    const sy = Math.max(0, Math.min(srcH - 4, normBox.y * srcH));
+    const sw = Math.max(4, Math.min(srcW - sx, normBox.width * srcW));
+    const sh = Math.max(4, Math.min(srcH - sy, normBox.height * srcH));
+
+    if (!sharedFeatCanvas) {
+      sharedFeatCanvas = document.createElement('canvas');
+    }
+    sharedFeatCanvas.width = 24;
+    sharedFeatCanvas.height = 24;
+    const ctx = sharedFeatCanvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return null;
+
+    ctx.drawImage(source, sx, sy, sw, sh, 0, 0, 24, 24);
+    const data = ctx.getImageData(0, 0, 24, 24).data;
+
+    const rArr = new Float32Array(24 * 24);
+    const gArr = new Float32Array(24 * 24);
+    const bArr = new Float32Array(24 * 24);
+    const lum = new Float32Array(24 * 24);
+
+    for (let i = 0; i < 24 * 24; i++) {
+      const r = data[i * 4] / 255;
+      const g = data[i * 4 + 1] / 255;
+      const b = data[i * 4 + 2] / 255;
+      rArr[i] = r;
+      gArr[i] = g;
+      bArr[i] = b;
+      lum[i] = r * 0.299 + g * 0.587 + b * 0.114;
+    }
+
+    const feats: number[] = [];
+    for (let gy = 0; gy < 4; gy++) {
+      for (let gx = 0; gx < 4; gx++) {
+        let sumR = 0, sumG = 0, sumB = 0, sumL = 0;
+        const lums: number[] = [];
+        let gradX = 0, cntGX = 0;
+        let gradY = 0, cntGY = 0;
+
+        for (let y = gy * 6; y < (gy + 1) * 6; y++) {
+          for (let x = gx * 6; x < (gx + 1) * 6; x++) {
+            const idx = y * 24 + x;
+            sumR += rArr[idx];
+            sumG += gArr[idx];
+            sumB += bArr[idx];
+            sumL += lum[idx];
+            lums.push(lum[idx]);
+            if (x + 1 < (gx + 1) * 6) {
+              gradX += Math.abs(lum[idx + 1] - lum[idx]);
+              cntGX++;
+            }
+            if (y + 1 < (gy + 1) * 6) {
+              gradY += Math.abs(lum[(y + 1) * 24 + x] - lum[idx]);
+              cntGY++;
+            }
+          }
+        }
+        const n = 36;
+        const meanL = sumL / n;
+        let varL = 0;
+        for (const lv of lums) varL += (lv - meanL) * (lv - meanL);
+        const stdL = Math.sqrt(varL / n);
+
+        feats.push(
+          sumR / n,
+          sumG / n,
+          sumB / n,
+          stdL * 2.0,
+          (cntGX > 0 ? gradX / cntGX : 0) * 3.0,
+          (cntGY > 0 ? gradY / cntGY : 0) * 3.0
+        );
+      }
+    }
+
+    let norm = 0;
+    for (const f of feats) norm += f * f;
+    norm = Math.sqrt(norm) || 1;
+    const normalized = feats.map((f) => Number((f / norm).toFixed(5)));
+
+    // Crisp 80x96 thumbnail for UI & 3D card
+    const thumbC = document.createElement('canvas');
+    thumbC.width = 80;
+    thumbC.height = 96;
+    const tctx = thumbC.getContext('2d');
+    tctx?.drawImage(source, sx, sy, sw, sh, 0, 0, 80, 96);
+
+    return {
+      vector: normalized,
+      thumbnailBase64: thumbC.toDataURL('image/jpeg', 0.78),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function cosineSimilarityVec(a: number[], b: number[]): number {
+  if (!a || !b || a.length === 0 || a.length !== b.length) return 0;
+  let dot = 0, na = 0, nb = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i];
+    na += a[i] * a[i];
+    nb += b[i] * b[i];
+  }
+  const d = Math.sqrt(na) * Math.sqrt(nb);
+  return d > 1e-8 ? dot / d : 0;
+}
+
+/**
+ * Extract spoken Indian person names from Hindi speech transcript ("अरे शर्मा जी", "राजू भाई का हिसाब")
+ */
+export function extractSpokenPersonNames(text: string): string[] {
+  if (!text) return [];
+  const found: string[] = [];
+  const tokens = text.replace(/[।,.?!"]/g, ' ').split(/\s+/).filter(Boolean);
+
+  for (let i = 0; i < tokens.length - 1; i++) {
+    const w = tokens[i].trim();
+    const next = tokens[i + 1].trim();
+    if (w.length >= 2 && w.length <= 15 && !/^\d+$/.test(w) && !NON_NAME_STOPWORDS.has(w.toLowerCase())) {
+      if (HONORIFICS.includes(next)) {
+        const cand = ['जी', 'भाई', 'चाचा', 'काका', 'सेठ'].includes(next) ? `${w} ${next}` : w;
+        if (!found.includes(cand)) found.push(cand);
+      } else if (next === 'का' || next === 'के' || next === 'की') {
+        const third = tokens[i + 2] || '';
+        if (['हिसाब', 'खाते', 'खाता', 'उधारी'].includes(third) && !found.includes(w)) {
+          found.push(w);
+        }
+      }
+    }
+  }
+  return found.slice(0, 3);
+}
+
+class AiBrainEngineService {
+  public learnedObjects: LearnedObjectItem[] = [];
+  public learnedPeople: LearnedPersonItem[] = [];
+  public routine: RoutineStats | null = null;
+  private lastLoadedAt = 0;
+
+  public async refreshBrain(force = false): Promise<void> {
+    if (!force && Date.now() - this.lastLoadedAt < 12000 && (this.learnedObjects.length > 0 || this.routine)) {
+      return;
+    }
+    try {
+      const res = await API.get('/cameras/ai-brain');
+      if (res.data?.success) {
+        this.learnedObjects = res.data.learnedObjects || [];
+        this.learnedPeople = res.data.learnedPeople || [];
+        this.routine = res.data.routine || null;
+        this.lastLoadedAt = Date.now();
+      }
+    } catch {
+      // ignore transient error
+    }
+  }
+
+  /** Match a detected person's upper-body crop against permanent learned regular people */
+  public matchPersonInFrame(
+    source: HTMLImageElement | HTMLVideoElement | HTMLCanvasElement,
+    personBox: { x: number; y: number; width: number; height: number }
+  ): { person: LearnedPersonItem | null; upperVec: number[] | null; thumb?: string } {
+    const upperBox = {
+      x: personBox.x,
+      y: personBox.y,
+      width: personBox.width,
+      height: personBox.height * 0.62,
+    };
+    const res = compute96DFeatureVector(source, upperBox);
+    if (!res) return { person: null, upperVec: null };
+
+    let best: LearnedPersonItem | null = null;
+    let bestSim = 0.77;
+    for (const p of this.learnedPeople) {
+      const sim = cosineSimilarityVec(res.vector, p.featureVector);
+      if (sim > bestSim) {
+        bestSim = sim;
+        best = p;
+      }
+    }
+    return { person: best, upperVec: res.vector, thumb: res.thumbnailBase64 };
+  }
+
+  /** Detect owner-taught custom dairy objects (50L Can, Patila, Crate, Scale) on active frame */
+  public scanLearnedObjectsOnFrame(
+    source: HTMLImageElement | HTMLVideoElement | HTMLCanvasElement,
+    channel: number
+  ): Array<{
+    label: string;
+    category: string;
+    confidence: number;
+    box: { x: number; y: number; width: number; height: number };
+  }> {
+    const chObjs = this.learnedObjects.filter((o) => Number(o.channel || 1) === Number(channel) && o.objectCategory !== 'IGNORE');
+    if (chObjs.length === 0) return [];
+
+    const matches: Array<{
+      label: string;
+      category: string;
+      confidence: number;
+      box: { x: number; y: number; width: number; height: number };
+    }> = [];
+    const seen = new Set<string>();
+
+    for (const o of chObjs) {
+      if (!o.box) continue;
+      const feat = compute96DFeatureVector(source, o.box);
+      if (!feat) continue;
+      const sim = cosineSimilarityVec(feat.vector, o.featureVector);
+      if (sim >= 0.79 && !seen.has(o.label)) {
+        seen.add(o.label);
+        matches.push({
+          label: o.label,
+          category: o.objectCategory,
+          confidence: Math.min(99, Math.round(sim * 100)),
+          box: o.box,
+        });
+      }
+    }
+    return matches;
+  }
+}
+
+export const aiBrainService = new AiBrainEngineService();
