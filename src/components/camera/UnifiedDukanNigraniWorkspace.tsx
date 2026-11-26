@@ -238,8 +238,12 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
     return () => clearInterval(tlInterval);
   }, [fetchPairingBlocks]);
 
-  // Warm up On-Device YOLO & track readiness for Health Diagnostics Bar
+  // Only initialize heavy 30MB WASM YOLO when needed (Test Video / Webcam) so Live DVR opens in 0ms with zero lag!
   useEffect(() => {
+    if (sourceMode === 'DVR') {
+      setPipelineHealth((p) => ({ ...p, yoloReady: true }));
+      return;
+    }
     let mounted = true;
     mobileYolo.initModel().then((ready) => {
       if (mounted) setPipelineHealth((p) => ({ ...p, yoloReady: ready }));
@@ -247,7 +251,7 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [sourceMode]);
 
   // Bidirectional MongoDB Slab Sync: Load saved VisualPairingBlocks on camera load (handles both {blocks:[]} and [])
   useEffect(() => {
@@ -403,6 +407,39 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
 
   // Real-Time Socket.IO + Live Telemetry Auto-Sync (Edge AI + DVR Bridge + Audio + Counters)
   const lastEdgeTranscriptStampRef = useRef<string>('');
+  // Shared per-camera fetch guard so Socket.IO push and fallback poll NEVER double-fetch the same camera!
+  const camLastFetchAtRef = useRef<Record<string, number>>({});
+  const camInFlightRef = useRef<Record<string, boolean>>({});
+
+  const fetchCameraSnapshotDeduped = useCallback(async (camId: string, minGapMs = 1350) => {
+    const now = Date.now();
+    if (camInFlightRef.current[camId] || now - (camLastFetchAtRef.current[camId] || 0) < minGapMs) {
+      return;
+    }
+    camInFlightRef.current[camId] = true;
+    camLastFetchAtRef.current[camId] = now;
+    try {
+      const res = await API.get(`/cameras/${camId}/live-snapshot`, {
+        params: { t: now },
+        responseType: 'blob',
+        timeout: 4500,
+      });
+      const blobUrl = URL.createObjectURL(res.data);
+      setDvrFrames((prev) => {
+        const oldUrl = prev[camId];
+        if (oldUrl && oldUrl !== blobUrl) {
+          setTimeout(() => URL.revokeObjectURL(oldUrl), 7000);
+        }
+        return { ...prev, [camId]: blobUrl };
+      });
+      setDvrStatus((prev) => ({ ...prev, [camId]: 'LIVE' }));
+      setPipelineHealth((p) => ({ ...p, dvrBridgeOnline: true }));
+    } catch {
+      setDvrStatus((prev) => ({ ...prev, [camId]: 'OFFLINE' }));
+    } finally {
+      camInFlightRef.current[camId] = false;
+    }
+  }, []);
   const dvrFramesLatestRef = useRef<Record<string, string>>({});
   useEffect(() => {
     dvrFramesLatestRef.current = dvrFrames;
@@ -494,28 +531,9 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
       }
     });
 
-    const lastPushFetchRef: Record<string, number> = {};
     socket.on('camera:frame_ready', (ev: { cameraId?: string }) => {
       if (!alive || sourceMode !== 'DVR' || !ev?.cameraId) return;
-      const cid = ev.cameraId;
-      const now = Date.now();
-      if (now - (lastPushFetchRef[cid] || 0) < 850) return;
-      lastPushFetchRef[cid] = now;
-      API.get(`/cameras/${cid}/live-snapshot`, { params: { t: now }, responseType: 'blob', timeout: 4000 })
-        .then((res) => {
-          if (!alive) return;
-          const blobUrl = URL.createObjectURL(res.data);
-          setDvrFrames((prev) => {
-            const oldUrl = prev[cid];
-            if (oldUrl && oldUrl !== blobUrl) {
-              setTimeout(() => URL.revokeObjectURL(oldUrl), 7000);
-            }
-            return { ...prev, [cid]: blobUrl };
-          });
-          setDvrStatus((prev) => ({ ...prev, [cid]: 'LIVE' }));
-          setPipelineHealth((p) => ({ ...p, dvrBridgeOnline: true }));
-        })
-        .catch(() => {});
+      fetchCameraSnapshotDeduped(ev.cameraId, 1300);
     });
 
     return () => {
@@ -523,46 +541,23 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
       clearInterval(pollIv);
       socket.disconnect();
     };
-  }, [activeTenantId, sourceMode, appendLog]);
+  }, [activeTenantId, sourceMode, appendLog, fetchCameraSnapshotDeduped]);
 
-  // Staggered Multi-Camera DVR Snapshot Polling (Delayed Blob Cleanup -> 0 Texture Errors & 0 Memory Leaks)
+  // Lightweight Fallback Multi-Camera DVR Polling (skips automatically whenever Socket.IO just updated that camera!)
   useEffect(() => {
     if (sourceMode !== 'DVR' || cameras.length === 0) return;
     let alive = true;
     const timers: any[] = [];
 
-    const pollCamera = async (cam: any) => {
-      try {
-        const res = await API.get(`/cameras/${cam._id}/live-snapshot`, {
-          params: { t: Date.now() },
-          responseType: 'blob',
-          timeout: 4500,
-        });
-        if (!alive) return;
-        const blobUrl = URL.createObjectURL(res.data);
-        setDvrFrames((prev) => {
-          const oldUrl = prev[cam._id];
-          if (oldUrl && oldUrl !== blobUrl) {
-            setTimeout(() => URL.revokeObjectURL(oldUrl), 7000);
-          }
-          return { ...prev, [cam._id]: blobUrl };
-        });
-        setDvrStatus((prev) => ({ ...prev, [cam._id]: 'LIVE' }));
-      } catch {
-        if (alive) setDvrStatus((prev) => ({ ...prev, [cam._id]: 'OFFLINE' }));
-      }
-    };
-
     cameras.forEach((cam, idx) => {
-      // Stagger start by 350ms per camera so Hikvision DVR never gets hit simultaneously
       const startTimer = setTimeout(() => {
         if (!alive) return;
-        pollCamera(cam);
+        fetchCameraSnapshotDeduped(cam._id, 1200);
         const iv = setInterval(() => {
-          if (alive) pollCamera(cam);
-        }, Math.max(1500, cameras.length * 420));
+          if (alive) fetchCameraSnapshotDeduped(cam._id, 2200);
+        }, Math.max(2400, cameras.length * 650));
         timers.push(iv);
-      }, idx * 350);
+      }, idx * 400);
       timers.push(startTimer);
     });
 
@@ -573,7 +568,7 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
         clearInterval(t);
       });
     };
-  }, [sourceMode, cameras]);
+  }, [sourceMode, cameras, fetchCameraSnapshotDeduped]);
 
   useEffect(() => {
     return () => {
@@ -1109,7 +1104,7 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
         const key = sourceMode; // 'FILE' or 'WEBCAM'
         analyzeSource(key, sourceMode === 'FILE' ? 'वीडियो' : 'वेबकैम', videoRef.current);
       }
-    }, 220);
+    }, 450);
 
     return () => clearInterval(interval);
   }, [sourceMode, cameras, drawTool, appendLog]);
@@ -1544,6 +1539,7 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
           gridSnapshots={effective3DSnapshots}
           pairingBlocks={pairingBlocks}
           liveTelemetry={sourceMode === 'DVR' ? liveTelemetry : null}
+          isVideoTestMode={sourceMode !== 'DVR'}
           localSpeechQuote={lastHeardText}
           localGallaPulseAt={localGallaPulseAt}
           onSelectSingleCamera={(camId) => {
