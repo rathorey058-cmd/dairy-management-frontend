@@ -31,6 +31,7 @@ export interface LiveTelemetryProp {
         confidence: number;
         box: { x: number; y: number; width: number; height: number };
         dwellSec: number;
+        actionText?: string;
         cropDataUrl?: string;
       }>;
       activeZones?: string[];
@@ -58,6 +59,14 @@ export interface LiveTelemetryProp {
   } | null;
 }
 
+export interface LocalActiveActionProp {
+  id: string;
+  channel: number;
+  text: string;
+  kind: 'CUSTOMER' | 'GALLA' | 'GATE' | 'ZONE';
+  normBox?: { x: number; y: number; width: number; height: number };
+}
+
 interface Props {
   cameras: CameraDevice[];
   gridSnapshots: Record<string, string>;
@@ -68,6 +77,7 @@ interface Props {
   isVideoTestMode?: boolean;
   localSpeechQuote?: string;
   localGallaPulseAt?: number;
+  localActiveActions?: LocalActiveActionProp[];
   todayStats?: {
     customers?: number;
     gallaOpenings?: number;
@@ -79,6 +89,7 @@ interface Tracked3DEntity {
   id: string;
   kind: 'CUSTOMER' | 'STAFF' | 'BIKE' | 'CAR' | 'PASSERBY' | 'DAIRY_ASSET';
   label: string;
+  actionText?: string;
   channel: number;
   confidence: number;
   dwellSec: number;
@@ -276,13 +287,13 @@ function createShopSignboardTexture(): THREE.CanvasTexture {
 
 function buildOverheadCardSprite(ent: Tracked3DEntity, cutImg?: HTMLImageElement): THREE.Sprite {
   const c = document.createElement('canvas');
-  c.width = 336;
-  c.height = 112;
+  c.width = 384;
+  c.height = 128;
   const ctx = c.getContext('2d')!;
 
-  ctx.fillStyle = 'rgba(9, 14, 26, 0.90)';
+  ctx.fillStyle = 'rgba(9, 14, 26, 0.92)';
   ctx.beginPath();
-  ctx.roundRect(4, 4, 328, 104, 20);
+  ctx.roundRect(4, 4, 376, 120, 20);
   ctx.fill();
 
   const hexCol = '#' + ent.color.toString(16).padStart(6, '0');
@@ -294,32 +305,66 @@ function buildOverheadCardSprite(ent: Tracked3DEntity, cutImg?: HTMLImageElement
   if (cutImg) {
     ctx.save();
     ctx.beginPath();
-    ctx.roundRect(12, 12, 74, 88, 12);
+    ctx.roundRect(12, 12, 82, 104, 12);
     ctx.clip();
-    ctx.drawImage(cutImg, 12, 12, 74, 88);
+    ctx.drawImage(cutImg, 12, 12, 82, 104);
     ctx.restore();
-    tx = 98;
+    tx = 106;
   }
 
   ctx.fillStyle = '#ffffff';
   ctx.font = 'bold 21px system-ui, sans-serif';
-  ctx.fillText(ent.label.slice(0, 21), tx, 44);
+  ctx.fillText(ent.label.slice(0, 22), tx, 38);
+
+  if (ent.actionText) {
+    ctx.fillStyle = '#fde047';
+    ctx.font = 'bold 16px system-ui, sans-serif';
+    ctx.fillText(`⚡ ${ent.actionText.slice(0, 25)}`, tx, 68);
+  }
 
   const mins = Math.floor(ent.dwellSec / 60);
   const secs = ent.dwellSec % 60;
   const dwellTxt = ent.dwellSec > 0 ? `${mins}:${String(secs).padStart(2, '0')}s` : 'LIVE';
 
   ctx.fillStyle = hexCol;
-  ctx.font = 'bold 18px monospace';
-  ctx.fillText(`Ch#${ent.channel} • ${dwellTxt} • ${ent.confidence}%`, tx, 80);
+  ctx.font = 'bold 17px monospace';
+  ctx.fillText(`Ch#${ent.channel} • ${dwellTxt} • ${ent.confidence}%`, tx, ent.actionText ? 98 : 80);
 
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
   const sp = new THREE.Sprite(mat);
-  sp.scale.set(1.56, 0.52, 1);
-  sp.position.set(0, ent.kind === 'CAR' ? 1.6 : ent.kind === 'BIKE' ? 1.4 : 2.12, 0);
+  sp.scale.set(1.78, 0.59, 1);
+  sp.position.set(0, ent.kind === 'CAR' ? 1.65 : ent.kind === 'BIKE' ? 1.45 : 2.18, 0);
   sp.name = 'overheadCard';
+  return sp;
+}
+
+function buildZoneActionBeaconSprite(actionText: string, borderHex = '#facc15'): THREE.Sprite {
+  const c = document.createElement('canvas');
+  c.width = 480;
+  c.height = 84;
+  const ctx = c.getContext('2d')!;
+
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
+  ctx.beginPath();
+  ctx.roundRect(4, 4, 472, 76, 18);
+  ctx.fill();
+
+  ctx.strokeStyle = borderHex;
+  ctx.lineWidth = 3;
+  ctx.stroke();
+
+  ctx.fillStyle = '#fef08a';
+  ctx.font = 'bold 22px system-ui, sans-serif';
+  const clipped = actionText.length > 34 ? actionText.slice(0, 33) + '…' : actionText;
+  ctx.fillText(`⚡ ${clipped}`, 20, 50);
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
+  const sp = new THREE.Sprite(mat);
+  sp.scale.set(2.55, 0.45, 1);
   return sp;
 }
 
@@ -571,6 +616,7 @@ export const UnifiedStore360View: React.FC<Props> = ({
   isVideoTestMode = false,
   localSpeechQuote,
   localGallaPulseAt,
+  localActiveActions = [],
   todayStats,
 }) => {
   const mountRef = useRef<HTMLDivElement | null>(null);
@@ -581,7 +627,8 @@ export const UnifiedStore360View: React.FC<Props> = ({
   const [autoRotate, setAutoRotate] = useState<boolean>(true);
   const [show3DVideoWalls, setShow3DVideoWalls] = useState<boolean>(true);
   const [showLaserCones, setShowLaserCones] = useState<boolean>(true);
-  const [browserYoloFallback, setBrowserYoloFallback] = useState<boolean>(false);
+  const [browserYoloFallback, setBrowserYoloFallback] = useState<boolean>(true);
+  const [mountGracePassed, setMountGracePassed] = useState<boolean>(false);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [selectedZoneCh, setSelectedZoneCh] = useState<number>(1);
   const [activePreset, setActivePreset] = useState<'TESLA_ISO' | 'DRONE_TOP' | 'COUNTER' | 'GALLA' | 'STREET'>('TESLA_ISO');
@@ -627,6 +674,7 @@ export const UnifiedStore360View: React.FC<Props> = ({
   const dynamicGroupRef = useRef<THREE.Group | null>(null);
   const blocksGroupRef = useRef<THREE.Group | null>(null);
   const speechGroupRef = useRef<THREE.Group | null>(null);
+  const actionBeaconsGroupRef = useRef<THREE.Group | null>(null);
 
   const applyCameraPreset = useCallback((preset: 'TESLA_ISO' | 'DRONE_TOP' | 'COUNTER' | 'GALLA' | 'STREET') => {
     setActivePreset(preset);
@@ -691,55 +739,117 @@ export const UnifiedStore360View: React.FC<Props> = ({
     return () => document.removeEventListener('fullscreenchange', onFsChange);
   }, []);
 
+  useEffect(() => {
+    const t = setTimeout(() => setMountGracePassed(true), 5200);
+    return () => clearTimeout(t);
+  }, []);
+
   // 1. Zero-Lag Primary Source: Python Edge AI Live Telemetry (0% Browser CPU!)
-  const edgeTelemetryFresh = Boolean(liveTelemetry?.updatedAt && Date.now() - liveTelemetry.updatedAt < 12000);
+  const edgeTelemetryAgeMs = liveTelemetry?.updatedAt ? Date.now() - Number(liveTelemetry.updatedAt) : 999999;
+  const edgeTelemetryFresh = Boolean(liveTelemetry?.updatedAt && edgeTelemetryAgeMs >= -15000 && edgeTelemetryAgeMs < 18000);
+
+  const deriveHindiActionText = useCallback((kind: Tracked3DEntity['kind'], ch: number, dwellSec: number) => {
+    if (kind === 'DAIRY_ASSET') return 'सीखा गया डेयरी सामान दिखा';
+    if (kind === 'BIKE' || kind === 'CAR') return 'दुकान के बाहर वाहन गतिविधि';
+    if (ch === 1) {
+      if (kind === 'CUSTOMER') return dwellSec >= 4 ? `दूध काउंटर पर ग्राहक खड़ा है (${dwellSec}s)` : 'दूध काउंटर पर ग्राहक आया';
+      if (kind === 'STAFF') return 'काउंटर पर स्टाफ सक्रिय';
+      return 'गेट के बाहर राहगीर';
+    }
+    if (ch === 2) return 'गल्ला / डीप फ्रीजर ज़ोन में व्यक्ति सक्रिय';
+    if (ch === 3) return 'किराना रैक / कांटा ज़ोन में व्यक्ति सक्रिय';
+    if (ch === 4) return kind === 'CUSTOMER' ? 'मुख्य गेट से ग्राहक प्रवेश' : 'मुख्य गेट के पास हलचल';
+    return 'बाहरी सड़क ज़ोन में हलचल';
+  }, []);
 
   useEffect(() => {
-    if (!liveTelemetry?.channels || !edgeTelemetryFresh) return;
+    if (!edgeTelemetryFresh && localActiveActions.length === 0) return;
     const now = Date.now();
     const nextList: Tracked3DEntity[] = [];
 
-    Object.entries(liveTelemetry.channels).forEach(([chStr, chData]) => {
-      const ch = Number(chStr) || 1;
-      (chData?.detections || []).forEach((d) => {
-        const p3 = mapBoxAndRoleTo3DWorld(d.box, ch, d.role, d.className, d.confidence);
-        const prev = entitiesRef.current.find((e) => e.id === d.trackId);
-        const curX = prev ? prev.curX : p3.x;
-        const curZ = prev ? prev.curZ : p3.z;
-        const trail: Array<[number, number]> = prev ? [...prev.trail] : [[curX, curZ]];
-        const lastPt = trail[trail.length - 1];
-        if (!lastPt || Math.hypot(p3.x - lastPt[0], p3.z - lastPt[1]) > 0.14) {
-          trail.push([p3.x, p3.z]);
-          if (trail.length > 24) trail.shift();
-        }
-        nextList.push({
-          id: d.trackId,
-          kind: p3.kind,
-          label: d.customLabel || p3.label,
-          channel: ch,
-          confidence: d.confidence,
-          dwellSec: d.dwellSec || 0,
-          targetX: p3.x,
-          targetZ: p3.z,
-          curX,
-          curZ,
-          trail,
-          color: p3.color,
-          firstSeen: prev ? prev.firstSeen : now,
-          lastSeen: now,
-          cropDataUrl: d.cropDataUrl || prev?.cropDataUrl,
-          source: 'EDGE_LIVE',
+    if (liveTelemetry?.channels && edgeTelemetryFresh) {
+      Object.entries(liveTelemetry.channels).forEach(([chStr, chData]) => {
+        const ch = Number(chStr) || 1;
+        const texImg = videoTexturesRef.current[ch]?.image;
+        (chData?.detections || []).forEach((d) => {
+          const p3 = mapBoxAndRoleTo3DWorld(d.box, ch, d.role, d.className, d.confidence);
+          const prev = entitiesRef.current.find((e) => e.id === d.trackId);
+          const curX = prev ? prev.curX : p3.x;
+          const curZ = prev ? prev.curZ : p3.z;
+          const trail: Array<[number, number]> = prev ? [...prev.trail] : [[curX, curZ]];
+          const lastPt = trail[trail.length - 1];
+          if (!lastPt || Math.hypot(p3.x - lastPt[0], p3.z - lastPt[1]) > 0.14) {
+            trail.push([p3.x, p3.z]);
+            if (trail.length > 24) trail.shift();
+          }
+
+          let liveCrop = d.cropDataUrl || prev?.cropDataUrl;
+          if (!liveCrop && texImg instanceof HTMLImageElement && texImg.naturalWidth > 0) {
+            liveCrop = cropDetectionToDataUrl(texImg, {
+              className: d.className,
+              confidence: d.confidence,
+              box: d.box,
+            });
+          }
+
+          nextList.push({
+            id: d.trackId,
+            kind: p3.kind,
+            label: d.customLabel || p3.label,
+            actionText: d.actionText || deriveHindiActionText(p3.kind, ch, d.dwellSec || 0),
+            channel: ch,
+            confidence: d.confidence,
+            dwellSec: d.dwellSec || 0,
+            targetX: p3.x,
+            targetZ: p3.z,
+            curX,
+            curZ,
+            trail,
+            color: p3.color,
+            firstSeen: prev ? prev.firstSeen : now,
+            lastSeen: now,
+            cropDataUrl: liveCrop,
+            source: 'EDGE_LIVE',
+          });
         });
       });
+    }
+
+    // Also synthesize live 3D avatars from 2D drawn zone motion if no YOLO track is already on that channel
+    localActiveActions.forEach((act) => {
+      if (act.kind === 'CUSTOMER' && act.normBox && !nextList.some((e) => e.channel === act.channel)) {
+        const p3 = mapBoxAndRoleTo3DWorld(act.normBox, act.channel, 'CUSTOMER', 'person', 92);
+        const prev = entitiesRef.current.find((e) => e.id === act.id);
+        nextList.push({
+          id: act.id,
+          kind: 'CUSTOMER',
+          label: p3.label,
+          actionText: act.text,
+          channel: act.channel,
+          confidence: 92,
+          dwellSec: prev ? Math.max(1, Math.round((now - prev.firstSeen) / 1000)) : 1,
+          targetX: p3.x,
+          targetZ: p3.z,
+          curX: prev ? prev.curX : p3.x,
+          curZ: prev ? prev.curZ : p3.z,
+          trail: prev ? prev.trail : [[p3.x, p3.z]],
+          color: 0x10b981,
+          firstSeen: prev ? prev.firstSeen : now,
+          lastSeen: now,
+          source: 'EDGE_LIVE',
+        });
+      }
     });
 
-    const graceEntities = entitiesRef.current.filter(
-      (old) => !nextList.some((n) => n.id === old.id) && now - old.lastSeen < 3200
-    );
-    const merged = [...nextList, ...graceEntities];
-    entitiesRef.current = merged;
-    setLiveEntities(merged);
-  }, [liveTelemetry, edgeTelemetryFresh]);
+    if (edgeTelemetryFresh || nextList.length > 0) {
+      const graceEntities = entitiesRef.current.filter(
+        (old) => !nextList.some((n) => n.id === old.id) && now - old.lastSeen < 3500
+      );
+      const merged = [...nextList, ...graceEntities];
+      entitiesRef.current = merged;
+      setLiveEntities(merged);
+    }
+  }, [liveTelemetry, edgeTelemetryFresh, localActiveActions, deriveHindiActionText]);
 
   // 2. Sync Galla 3D Drawer Slide + Shockwave Ring
   useEffect(() => {
@@ -774,9 +884,8 @@ export const UnifiedStore360View: React.FC<Props> = ({
     }
   }, [activeSpeechText]);
 
-  // 4. Browser On-Device YOLOv8 — ONLY runs automatically in Video Test Mode (or when user enables Browser YOLO toggle)
-  // This keeps Live DVR mode 100% lag-free at silky 60 FPS!
-  const shouldRunBrowserYolo = isVideoTestMode || browserYoloFallback;
+  // 4. Browser On-Device YOLOv8 — 0% CPU when Python Edge AI is fresh; auto-activates smoothly if Edge AI is off or in Video Test Mode!
+  const shouldRunBrowserYolo = isVideoTestMode || (browserYoloFallback && mountGracePassed);
 
   useEffect(() => {
     if (edgeTelemetryFresh || !shouldRunBrowserYolo) return;
@@ -870,6 +979,7 @@ export const UnifiedStore360View: React.FC<Props> = ({
             id,
             kind: p3.kind,
             label: brainPersonLabel || p3.label,
+            actionText: deriveHindiActionText(p3.kind, ch, dwellSec),
             channel: ch,
             confidence: det.confidence,
             dwellSec,
@@ -1375,6 +1485,10 @@ export const UnifiedStore360View: React.FC<Props> = ({
     scene.add(blocksGroup);
     blocksGroupRef.current = blocksGroup;
 
+    const actionBeaconsGroup = new THREE.Group();
+    scene.add(actionBeaconsGroup);
+    actionBeaconsGroupRef.current = actionBeaconsGroup;
+
     const speechGroup = new THREE.Group();
     scene.add(speechGroup);
     speechGroupRef.current = speechGroup;
@@ -1578,7 +1692,7 @@ export const UnifiedStore360View: React.FC<Props> = ({
         ent.curX += dx * 0.12;
         ent.curZ += dz * 0.12;
 
-        const tagStamp = `${Math.floor(ent.dwellSec / 2)}-${ent.label}-${Boolean(ent.cropDataUrl)}`;
+        const tagStamp = `${Math.floor(ent.dwellSec / 2)}-${ent.label}-${ent.actionText || ''}-${Boolean(ent.cropDataUrl)}`;
         let rec = entityMeshMap[ent.id];
         if (!rec) {
           const grp = create3DAvatar(ent);
@@ -1724,6 +1838,88 @@ export const UnifiedStore360View: React.FC<Props> = ({
     0
   );
   const unattendedAlert = liveTelemetry?.unattendedAlert;
+
+  // Build unified Live Shop Actions Feed (Edge AI detections + Active Zones + Galla + Speech + Local 2D Zones)
+  const liveActionItems = (() => {
+    const items: Array<{ id: string; channel: number; text: string; tone: 'emerald' | 'amber' | 'rose' | 'cyan'; entity?: Tracked3DEntity }> = [];
+    const seenTexts = new Set<string>();
+
+    if (liveTelemetry?.galla?.state === 'OPEN' || (localGallaPulseAt && Date.now() - localGallaPulseAt < 7000)) {
+      const gTxt = '💸 गल्ला दराज खुला (लाइव हलचल)!';
+      seenTexts.add(gTxt);
+      items.push({ id: 'act-galla', channel: 2, text: gTxt, tone: 'amber' });
+    }
+
+    liveEntities.forEach((ent) => {
+      const txt = `Ch#${ent.channel} ${ent.actionText || ent.label}`;
+      if (!seenTexts.has(txt)) {
+        seenTexts.add(txt);
+        items.push({
+          id: `act-ent-${ent.id}`,
+          channel: ent.channel,
+          text: txt,
+          tone: ent.kind === 'CUSTOMER' ? 'emerald' : ent.kind === 'BIKE' || ent.kind === 'CAR' ? 'amber' : 'cyan',
+          entity: ent,
+        });
+      }
+    });
+
+    if (liveTelemetry?.channels) {
+      Object.entries(liveTelemetry.channels).forEach(([chStr, chObj]) => {
+        const ch = Number(chStr) || 1;
+        (chObj?.activeZones || []).forEach((zn) => {
+          const zTxt = `Ch#${ch} ज़ोन सक्रिय: ${zn}`;
+          if (!seenTexts.has(zTxt)) {
+            seenTexts.add(zTxt);
+            items.push({ id: `act-zn-${ch}-${zn}`, channel: ch, text: zTxt, tone: 'cyan' });
+          }
+        });
+      });
+    }
+
+    localActiveActions.forEach((la) => {
+      const lTxt = `Ch#${la.channel} ${la.text}`;
+      if (!seenTexts.has(lTxt)) {
+        seenTexts.add(lTxt);
+        items.push({ id: la.id, channel: la.channel, text: lTxt, tone: la.kind === 'GALLA' ? 'amber' : 'emerald' });
+      }
+    });
+
+    return items.slice(0, 6);
+  })();
+
+  // Sync 3D Zone Action Beacons on the 3D Map Floor/Ceiling
+  useEffect(() => {
+    const grp = actionBeaconsGroupRef.current;
+    if (!grp) return;
+    while (grp.children.length > 0) {
+      const ch = grp.children[0];
+      grp.remove(ch);
+      disposeObject3D(ch);
+    }
+
+    const perChannelAction = new Map<number, string>();
+    liveActionItems.forEach((it) => {
+      if (!perChannelAction.has(it.channel) && !it.entity) {
+        perChannelAction.set(it.channel, it.text);
+      }
+    });
+
+    perChannelAction.forEach((txt, ch) => {
+      const anchor = CAM_3D_ANCHORS[ch] || CAM_3D_ANCHORS[1];
+      const sp = buildZoneActionBeaconSprite(txt, anchor.hex);
+      sp.position.set(anchor.zoneBounds.xCenter, 2.55, anchor.zoneBounds.zCenter);
+      grp.add(sp);
+
+      const ring = new THREE.Mesh(
+        new THREE.RingGeometry(0.9, 1.15, 36),
+        new THREE.MeshBasicMaterial({ color: anchor.color, side: THREE.DoubleSide, transparent: true, opacity: 0.72 })
+      );
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.set(anchor.zoneBounds.xCenter, 0.04, anchor.zoneBounds.zCenter);
+      grp.add(ring);
+    });
+  }, [liveActionItems]);
 
   return (
     <div ref={wrapperRef} className={`space-y-3 ${isFullscreen ? 'bg-slate-950 p-4 overflow-y-auto' : ''}`}>
@@ -1939,6 +2135,35 @@ export const UnifiedStore360View: React.FC<Props> = ({
             </button>
           </div>
         </div>
+
+        {/* LIVE SHOP ACTIONS TICKER BAR RIGHT ON THE 3D MAP */}
+        {liveActionItems.length > 0 && (
+          <div className="absolute top-12 left-3 right-3 flex flex-wrap items-center gap-1.5 z-20 pointer-events-auto">
+            {liveActionItems.map((act) => (
+              <button
+                key={act.id}
+                type="button"
+                onClick={() => {
+                  if (act.entity) focusOnEntity(act.entity);
+                  else if (act.channel === 1) applyCameraPreset('COUNTER');
+                  else if (act.channel === 2) applyCameraPreset('GALLA');
+                  else if (act.channel >= 4) applyCameraPreset('STREET');
+                  else applyCameraPreset('TESLA_ISO');
+                }}
+                className={`px-2.5 py-1 rounded-xl backdrop-blur-md text-[10px] font-extrabold border shadow-lg flex items-center gap-1.5 transition hover:scale-[1.02] ${
+                  act.tone === 'amber'
+                    ? 'bg-amber-950/90 text-amber-200 border-amber-400/50'
+                    : act.tone === 'emerald'
+                    ? 'bg-emerald-950/90 text-emerald-200 border-emerald-400/50'
+                    : 'bg-sky-950/90 text-sky-200 border-sky-400/50'
+                }`}
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-current animate-ping" />
+                <span>⚡ {act.text}</span>
+              </button>
+            ))}
+          </div>
+        )}
 
         <div
           ref={mountRef}

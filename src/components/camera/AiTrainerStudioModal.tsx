@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import API from '../../api';
 import { mobileYolo } from '../../services/mobileYoloService';
 import {
   aiBrainService,
@@ -77,17 +76,10 @@ export const AiTrainerStudioModal: React.FC<Props> = ({
   const backupRestoreRef = useRef<HTMLInputElement | null>(null);
 
   const loadBrain = useCallback(async () => {
-    try {
-      const res = await API.get('/cameras/ai-brain');
-      if (res.data?.success) {
-        setRoutine(res.data.routine || null);
-        setLearnedObjects(res.data.learnedObjects || []);
-        setLearnedPeople(res.data.learnedPeople || []);
-      }
-      await aiBrainService.refreshBrain(true);
-    } catch {
-      // ignore
-    }
+    await aiBrainService.refreshBrain(true);
+    setRoutine(aiBrainService.routine);
+    setLearnedObjects([...aiBrainService.learnedObjects]);
+    setLearnedPeople([...aiBrainService.learnedPeople]);
   }, []);
 
   useEffect(() => {
@@ -175,7 +167,7 @@ export const AiTrainerStudioModal: React.FC<Props> = ({
       }
 
       if (teachModeType === 'OBJECT') {
-        await API.post('/cameras/ai-brain/teach-object', {
+        await aiBrainService.teachObjectWithFallback({
           label: teachLabel.trim(),
           objectCategory: teachCategory,
           channel: selectedChannel,
@@ -189,7 +181,7 @@ export const AiTrainerStudioModal: React.FC<Props> = ({
           text: `✅ AI ने "${teachLabel.trim()}" (Ch#${selectedChannel}) को स्थायी मेमोरी में सीख लिया है! अब यह लाइव व 3D टेस्ट दोनों में दिखेगा।`,
         });
       } else {
-        await API.post('/cameras/ai-brain/observe-person', {
+        await aiBrainService.observePersonWithFallback({
           channel: selectedChannel,
           featureVector: feat.vector,
           thumbnailBase64: feat.thumbnailBase64,
@@ -252,7 +244,7 @@ export const AiTrainerStudioModal: React.FC<Props> = ({
           const upperBox = { x: p.box.x, y: p.box.y, width: p.box.width, height: p.box.height * 0.62 };
           const feat = compute96DFeatureVector(vid, upperBox);
           if (feat) {
-            await API.post('/cameras/ai-brain/observe-person', {
+            await aiBrainService.observePersonWithFallback({
               channel: selectedChannel,
               featureVector: feat.vector,
               thumbnailBase64: feat.thumbnailBase64,
@@ -282,7 +274,7 @@ export const AiTrainerStudioModal: React.FC<Props> = ({
   const handleSavePersonName = async (id: string) => {
     if (!editNameInput.trim()) return;
     try {
-      await API.patch(`/cameras/ai-brain/entity/${id}`, { label: editNameInput.trim() });
+      await aiBrainService.renameEntityWithFallback(id, editNameInput.trim());
       setEditingPersonId(null);
       setEditNameInput('');
       await loadBrain();
@@ -294,7 +286,7 @@ export const AiTrainerStudioModal: React.FC<Props> = ({
 
   const handleDeleteEntity = async (id: string) => {
     try {
-      await API.delete(`/cameras/ai-brain/entity/${id}`);
+      await aiBrainService.deleteEntityWithFallback(id);
       await loadBrain();
       onBrainUpdated?.();
     } catch {
@@ -304,8 +296,8 @@ export const AiTrainerStudioModal: React.FC<Props> = ({
 
   const handleDownloadBackup = async () => {
     try {
-      const res = await API.get('/cameras/ai-brain/export-backup');
-      const blob = new Blob([JSON.stringify(res.data, null, 2)], { type: 'application/json' });
+      const backupData = await aiBrainService.exportBackupWithFallback();
+      const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -324,12 +316,12 @@ export const AiTrainerStudioModal: React.FC<Props> = ({
     try {
       const txt = await f.text();
       const parsed = JSON.parse(txt);
-      const res = await API.post('/cameras/ai-brain/import-backup', { records: parsed.records || [] });
+      const restoredCount = await aiBrainService.importBackupWithFallback(parsed);
       await loadBrain();
       onBrainUpdated?.();
       setStatusMsg({
         tone: 'ok',
-        text: `✅ बैकअप सफलतापूर्वक रीस्टोर हुआ (${res.data?.restored || 0} सीखी हुई मेमोरी वापस जुड़ गईं)!`,
+        text: `✅ बैकअप सफलतापूर्वक रीस्टोर हुआ (${restoredCount} सीखी हुई मेमोरी वापस जुड़ गईं)!`,
       });
     } catch {
       setStatusMsg({ tone: 'warn', text: 'अमान्य बैकअप फ़ाइल।' });

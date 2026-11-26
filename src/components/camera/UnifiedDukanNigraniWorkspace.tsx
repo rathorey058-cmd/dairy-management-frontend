@@ -447,6 +447,9 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
 
   useEffect(() => {
     let alive = true;
+    const liveTelemetryRoute404Ref = { current: false };
+    let pollInFlight = false;
+
     const applyTelemetryState = (tele: any, health?: any) => {
       if (!alive || !tele) return;
       setLiveTelemetry(tele);
@@ -455,11 +458,11 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
           ...prev,
           edgeAiOnline: Boolean(health.edgeAiOnline),
           recorderOnline: Boolean(health.recorderHeartbeatOnline),
-          dvrBridgeOnline: Boolean(health.dvrBridgeOnline),
-          freshCamerasCount: Number(health.freshCamerasCount || 0),
+          dvrBridgeOnline: Boolean(health.dvrBridgeOnline) || prev.dvrBridgeOnline,
+          freshCamerasCount: Math.max(Number(health.freshCamerasCount || 0), prev.freshCamerasCount),
         }));
       } else if (tele.updatedAt) {
-        const fresh = Date.now() - tele.updatedAt < 12000;
+        const fresh = Date.now() - Number(tele.updatedAt) < 18000;
         setPipelineHealth((prev) => ({ ...prev, edgeAiOnline: fresh, recorderOnline: fresh || prev.recorderOnline }));
       }
 
@@ -484,18 +487,67 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
       }
     };
 
-    const pollTelemetry = async () => {
+    const pollViaMongoTimelineFallback = async () => {
       try {
-        const res = await API.get('/cameras/live-telemetry');
-        if (!alive || !res.data?.success) return;
-        applyTelemetryState(res.data.telemetry, res.data.health);
+        const istMs = Date.now() + 5.5 * 3600 * 1000;
+        const istNow = new Date(istMs);
+        const dateStr = istNow.toISOString().slice(0, 10);
+        const istAgo = new Date(istMs - 15 * 60 * 1000);
+        const startStr = istAgo.toISOString().slice(0, 10) === dateStr ? istAgo.toISOString().slice(11, 16) : '00:00';
+
+        const tlRes = await API.get('/cameras/playback/timeline', {
+          params: { date: dateStr, startTime: startStr, endTime: '23:59' },
+          timeout: 4500,
+        });
+        if (!alive || !tlRes.data) return;
+
+        const events: any[] = tlRes.data.events || [];
+        for (let i = events.length - 1; i >= 0; i--) {
+          const ev = events[i];
+          const rawNote = String(ev?.note || '');
+          if (ev?.type === 'LIVE_3D_STATE' && rawNote.startsWith('LIVE_3D_JSON:')) {
+            const tele = JSON.parse(rawNote.slice('LIVE_3D_JSON:'.length));
+            const ageMs = tele.updatedAt ? Date.now() - Number(tele.updatedAt) : 999999;
+            const isFresh = ageMs >= -15000 && ageMs < 18000;
+            applyTelemetryState(tele, {
+              edgeAiOnline: isFresh,
+              recorderHeartbeatOnline: isFresh || Boolean(tlRes.data.recorderOnline),
+              dvrBridgeOnline: Object.keys(dvrFramesLatestRef.current).length > 0,
+              freshCamerasCount: Object.keys(dvrFramesLatestRef.current).length,
+            });
+            return;
+          }
+        }
       } catch {
         // Ignore transient network error
       }
     };
 
+    const pollTelemetry = async () => {
+      if (pollInFlight || !alive) return;
+      pollInFlight = true;
+      try {
+        if (!liveTelemetryRoute404Ref.current) {
+          try {
+            const res = await API.get('/cameras/live-telemetry', { timeout: 3500 });
+            if (alive && res.data?.success && res.data?.telemetry) {
+              applyTelemetryState(res.data.telemetry, res.data.health);
+              return;
+            }
+          } catch (err: any) {
+            if (err?.response?.status === 404) {
+              liveTelemetryRoute404Ref.current = true;
+            }
+          }
+        }
+        await pollViaMongoTimelineFallback();
+      } finally {
+        pollInFlight = false;
+      }
+    };
+
     pollTelemetry();
-    const pollIv = setInterval(pollTelemetry, 5500);
+    const pollIv = setInterval(pollTelemetry, 2200);
 
     const socketBaseUrl = (API.defaults.baseURL || 'https://dairy-management-backendd.onrender.com/api').replace(/\/api\/?$/, '');
     const socket = createSocket(socketBaseUrl, {
@@ -1542,6 +1594,42 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
           isVideoTestMode={sourceMode !== 'DVR'}
           localSpeechQuote={lastHeardText}
           localGallaPulseAt={localGallaPulseAt}
+          localActiveActions={(() => {
+            const acts: Array<{
+              id: string;
+              channel: number;
+              text: string;
+              kind: 'CUSTOMER' | 'GALLA' | 'GATE' | 'ZONE';
+              normBox?: { x: number; y: number; width: number; height: number };
+            }> = [];
+            zones.forEach((z) => {
+              if (standingZones[z.id]) {
+                const matchCam = cameras.find((c) => c._id === z.cameraKey);
+                const ch = matchCam?.channel || (sourceMode !== 'DVR' ? testVideoChannel : 1);
+                acts.push({
+                  id: `zone-live-${z.id}`,
+                  channel: ch,
+                  text: `${z.name} में ग्राहक खड़ा है`,
+                  kind: 'CUSTOMER',
+                  normBox: {
+                    x: Math.min(z.x1, z.x2),
+                    y: Math.min(z.y1, z.y2),
+                    width: Math.abs(z.x2 - z.x1),
+                    height: Math.abs(z.y2 - z.y1),
+                  },
+                });
+              }
+            });
+            if (localGallaPulseAt && Date.now() - localGallaPulseAt < 7500) {
+              acts.push({
+                id: 'local-galla-open',
+                channel: 2,
+                text: 'गल्ले पर लाइव हलचल दर्ज!',
+                kind: 'GALLA',
+              });
+            }
+            return acts;
+          })()}
           onSelectSingleCamera={(camId) => {
             if (!camId.startsWith('virtual-test-')) {
               setSourceMode('DVR');

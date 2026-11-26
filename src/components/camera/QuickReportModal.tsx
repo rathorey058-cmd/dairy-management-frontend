@@ -175,6 +175,8 @@ export const QuickReportModal: React.FC<Props> = ({ isOpen, onClose }) => {
         allEv.filter(
           (e: any) =>
             e.type !== 'FACE_VISIT' &&
+            e.type !== 'LIVE_3D_STATE' &&
+            e.type !== 'AI_BRAIN_MEM' &&
             !String(e.image || '').startsWith('SCAN_REQ:') &&
             !String(e.image || '').startsWith('AUDIO_REQ:')
         )

@@ -49,7 +49,13 @@ export const DvrPlaybackModal: React.FC<Props> = ({ isOpen, onClose, cameras }) 
   const [eventIdx, setEventIdx] = useState(0);
   const [isScanningHdd, setIsScanningHdd] = useState(false);
   const scanPollRef = useRef<any>(null);
-  const imgEvents: any[] = (timeline?.events || []).filter((e: any) => e.image && !String(e.image).startsWith('SCAN_REQ:'));
+  const imgEvents: any[] = (timeline?.events || []).filter(
+    (e: any) =>
+      e.type !== 'LIVE_3D_STATE' &&
+      e.type !== 'AI_BRAIN_MEM' &&
+      e.image &&
+      !String(e.image).startsWith('SCAN_REQ:')
+  );
 
   // Slideshow over REAL recorded AI event frames of the chosen time window (not live feed)
   useEffect(() => {
