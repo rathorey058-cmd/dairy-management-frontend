@@ -565,89 +565,109 @@ function makeCrispSpriteTexture(canvas: HTMLCanvasElement): THREE.CanvasTexture 
 function buildFixtureLabelSprite(text: string, hexColor = '#38bdf8'): THREE.Sprite {
   const c = document.createElement('canvas');
   c.width = 768;
-  c.height = 152;
+  c.height = 144;
   const ctx = c.getContext('2d')!;
   ctx.fillStyle = 'rgba(7, 12, 24, 0.94)';
   ctx.beginPath();
-  ctx.roundRect(8, 8, 752, 136, 32);
+  ctx.roundRect(8, 8, 752, 128, 30);
   ctx.fill();
   ctx.strokeStyle = hexColor;
-  ctx.lineWidth = 6;
+  ctx.lineWidth = 5.5;
   ctx.stroke();
 
   ctx.shadowColor = 'rgba(0, 0, 0, 0.85)';
-  ctx.shadowBlur = 6;
-  ctx.fillStyle = '#ffffff';
-  ctx.font = `800 54px ${CRISP_FONT}`;
+  ctx.shadowBlur = 4;
+  ctx.fillStyle = '#f8fafc';
+  ctx.font = `800 48px ${CRISP_FONT}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(text, 384, 78);
+  ctx.fillText(text, 384, 74);
 
   const tex = makeCrispSpriteTexture(c);
   const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
-  sp.scale.set(1.88, 0.37, 1);
+  sp.scale.set(1.38, 0.26, 1);
   return sp;
 }
 
 function buildStationActiveBadgeSprite(label: string, intensity: number, borderHex: string): THREE.Sprite {
   const c = document.createElement('canvas');
   c.width = 720;
-  c.height = 148;
+  c.height = 140;
   const ctx = c.getContext('2d')!;
-  ctx.fillStyle = 'rgba(6, 78, 59, 0.96)';
+  ctx.fillStyle = 'rgba(6, 78, 59, 0.97)';
   ctx.beginPath();
-  ctx.roundRect(8, 8, 704, 132, 30);
+  ctx.roundRect(8, 8, 704, 124, 28);
   ctx.fill();
   ctx.strokeStyle = borderHex;
-  ctx.lineWidth = 6;
+  ctx.lineWidth = 5.5;
   ctx.stroke();
 
   ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
-  ctx.shadowBlur = 5;
+  ctx.shadowBlur = 4;
   ctx.fillStyle = '#fef08a';
-  ctx.font = `800 44px ${CRISP_FONT}`;
+  ctx.font = `800 42px ${CRISP_FONT}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(`⚡ ${label} सक्रिय (${intensity}%)`, 360, 76);
+  ctx.fillText(`⚡ ${label} सक्रिय (${intensity}%)`, 360, 72);
 
   const tex = makeCrispSpriteTexture(c);
   const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
-  sp.scale.set(2.1, 0.43, 1);
+  sp.scale.set(1.52, 0.30, 1);
   return sp;
 }
 
 function buildOverheadCardSprite(ent: Tracked3DEntity, cutImg?: HTMLImageElement): THREE.Sprite {
+  const isMiniAsset = ent.kind === 'DAIRY_ASSET';
   const c = document.createElement('canvas');
-  c.width = 832;
-  c.height = 264;
+  c.width = isMiniAsset ? 560 : 820;
+  c.height = isMiniAsset ? 148 : 248;
   const ctx = c.getContext('2d')!;
 
-  ctx.fillStyle = 'rgba(8, 13, 25, 0.95)';
+  ctx.fillStyle = 'rgba(8, 13, 25, 0.96)';
   ctx.beginPath();
-  ctx.roundRect(8, 8, 816, 248, 38);
+  ctx.roundRect(8, 8, c.width - 16, c.height - 16, isMiniAsset ? 28 : 34);
   ctx.fill();
 
   const hexCol = '#' + ent.color.toString(16).padStart(6, '0');
   ctx.strokeStyle = ent.fusedChannels.length > 1 ? '#38bdf8' : hexCol;
-  ctx.lineWidth = 7;
+  ctx.lineWidth = 6;
   ctx.stroke();
 
-  let tx = 36;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.85)';
+  ctx.shadowBlur = 4;
+
+  if (isMiniAsset) {
+    ctx.fillStyle = '#ffffff';
+    ctx.font = `800 40px ${CRISP_FONT}`;
+    ctx.fillText(ent.label.slice(0, 20), 28, 66);
+    ctx.fillStyle = hexCol;
+    ctx.font = `800 28px ui-monospace, SFMono-Regular, Menlo, monospace`;
+    ctx.fillText(`Ch#${ent.channel} • ${ent.confidence}%`, 28, 114);
+
+    const tex = makeCrispSpriteTexture(c);
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
+    sp.scale.set(1.06, 0.28, 1);
+    sp.position.set(0, 1.02, 0);
+    sp.name = 'overheadCard';
+    return sp;
+  }
+
+  let tx = 34;
   if (cutImg) {
     ctx.save();
     ctx.beginPath();
-    ctx.roundRect(22, 22, 168, 220, 24);
+    ctx.roundRect(20, 20, 156, 208, 22);
     ctx.clip();
-    ctx.drawImage(cutImg, 22, 22, 168, 220);
+    ctx.drawImage(cutImg, 20, 20, 156, 208);
     ctx.restore();
-    tx = 214;
+    tx = 198;
   }
 
-  ctx.shadowColor = 'rgba(0, 0, 0, 0.85)';
-  ctx.shadowBlur = 5;
   ctx.fillStyle = '#ffffff';
-  ctx.font = `800 44px ${CRISP_FONT}`;
-  ctx.fillText(ent.label.slice(0, 23), tx, 76);
+  ctx.font = `800 42px ${CRISP_FONT}`;
+  ctx.fillText(ent.label.slice(0, 23), tx, 72);
 
   const stateHint =
     (ent.kind === 'BIKE' || ent.kind === 'CAR') && ent.speedMps > 0.22
@@ -656,8 +676,8 @@ function buildOverheadCardSprite(ent: Tracked3DEntity, cutImg?: HTMLImageElement
 
   if (stateHint) {
     ctx.fillStyle = '#fde047';
-    ctx.font = `700 33px ${CRISP_FONT}`;
-    ctx.fillText(`⚡ ${stateHint.slice(0, 26)}`, tx, 138);
+    ctx.font = `700 31px ${CRISP_FONT}`;
+    ctx.fillText(`⚡ ${stateHint.slice(0, 26)}`, tx, 132);
   }
 
   const mins = Math.floor(ent.dwellSec / 60);
@@ -668,16 +688,16 @@ function buildOverheadCardSprite(ent: Tracked3DEntity, cutImg?: HTMLImageElement
   const confLabel = ent.confidence >= 45 ? `${ent.confidence}%` : 'LIVE';
 
   ctx.fillStyle = ent.fusedChannels.length > 1 ? '#38bdf8' : hexCol;
-  ctx.font = `800 32px ui-monospace, SFMono-Regular, Menlo, monospace`;
-  ctx.fillText(`${chBadge} • ${dwellTxt} • ${confLabel}`, tx, stateHint ? 206 : 168);
+  ctx.font = `800 30px ui-monospace, SFMono-Regular, Menlo, monospace`;
+  ctx.fillText(`${chBadge} • ${dwellTxt} • ${confLabel}`, tx, stateHint ? 196 : 162);
 
   const tex = makeCrispSpriteTexture(c);
   const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
   const sp = new THREE.Sprite(mat);
-  sp.scale.set(2.02, 0.64, 1);
+  sp.scale.set(1.54, 0.47, 1);
   sp.position.set(
     0,
-    ent.kind === 'CAR' ? 1.66 : ent.kind === 'BIKE' ? 1.46 : ent.kind === 'DAIRY_ASSET' ? 1.18 : 2.16,
+    ent.kind === 'CAR' ? 1.56 : ent.kind === 'BIKE' ? 1.38 : 2.02,
     0
   );
   sp.name = 'overheadCard';
@@ -779,19 +799,19 @@ export const UnifiedStore360View: React.FC<Props> = ({
 
   const orbitCurRef = useRef({
     theta: 0.18,
-    phi: 0.67,
-    radius: 9.3,
+    phi: 0.65,
+    radius: 10.6,
     targetX: 0,
     targetY: 0.32,
-    targetZ: 0.35,
+    targetZ: 0.25,
   });
   const orbitGoalRef = useRef({
     theta: 0.18,
-    phi: 0.67,
-    radius: 9.3,
+    phi: 0.65,
+    radius: 10.6,
     targetX: 0,
     targetY: 0.32,
-    targetZ: 0.35,
+    targetZ: 0.25,
   });
   const dragInteractionRef = useRef({
     isDragging: false,
@@ -865,10 +885,10 @@ export const UnifiedStore360View: React.FC<Props> = ({
       g.targetZ = 0.45;
     } else if (preset === 'DEFAULT_3D') {
       g.theta = 0.18;
-      g.phi = 0.67;
-      g.radius = 9.3;
+      g.phi = 0.65;
+      g.radius = 10.6;
       g.targetX = 0;
-      g.targetZ = 0.35;
+      g.targetZ = 0.25;
     } else if (preset === 'COUNTER') {
       g.theta = 0.1;
       g.phi = 0.74;
@@ -1341,6 +1361,14 @@ export const UnifiedStore360View: React.FC<Props> = ({
       ring.position.set(meta.pos[0], 0.035, meta.pos[2]);
       grp.add(ring);
     });
+
+    // Hide static label on any station currently showing its green "सक्रिय" badge so labels never stack
+    if (fixedLabelsGroupRef.current) {
+      fixedLabelsGroupRef.current.children.forEach((sp) => {
+        const linkedSt = sp.userData?.stationId as string | undefined;
+        sp.visible = !(linkedSt && activeStations[linkedSt]?.active);
+      });
+    }
   }, [activeStations]);
 
   useEffect(() => {
@@ -1392,8 +1420,8 @@ export const UnifiedStore360View: React.FC<Props> = ({
     scene.background = new THREE.Color(0x080e1a);
     scene.fog = new THREE.FogExp2(0x080e1a, 0.011);
 
-    // 36° FOV keeps both back-wall & front-street large, proportionate, and legible without manual zooming
-    const camera = new THREE.PerspectiveCamera(36, width / height, 0.1, 130);
+    // 38° FOV frames the entire shop from back cooler to front street generously without manual zooming
+    const camera = new THREE.PerspectiveCamera(38, width / height, 0.1, 130);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     renderer.setSize(width, height);
@@ -1617,20 +1645,22 @@ export const UnifiedStore360View: React.FC<Props> = ({
 
     addBox(1.0, 2.3, -4.98, -2.25, 0.74, 0x475569, 0x64748b, { rough: 0.75 });
 
-    const fixedLabels: Array<[string, number, number, number, string]> = [
-      ['दूध काउंटर व पतीला', -1.32, 1.52, 2.02, '#38bdf8'],
-      ['लैपटॉप / गल्ला', -1.55, 1.18, 0.92, '#f43f5e'],
-      ['3-बास्केट फ्रीजर', 0.36, 1.12, 0.88, '#22d3ee'],
-      ['विज़ी-कूलर', 1.88, 2.22, 1.8, '#34d399'],
-      ['डीप फ्रीजर व कांटा', -1.96, 1.22, -1.45, '#a855f7'],
-      ['मावा मशीन / भट्टी', 1.55, 1.35, -1.05, '#f97316'],
-      ['बाहरी सड़क (Street)', 0, 0.24, 3.85, '#facc15'],
+    const fixedLabels: Array<[string, number, number, number, string, string?]> = [
+      ['दूध काउंटर व पतीला', -1.32, 1.52, 2.02, '#38bdf8', 'patila'],
+      ['लैपटॉप / गल्ला', -1.62, 1.16, 0.82, '#f43f5e', 'laptop_galla'],
+      ['3-बास्केट फ्रीजर', 0.36, 1.12, 0.88, '#22d3ee', 'basket_freezer'],
+      ['विज़ी-कूलर', 1.88, 2.22, 1.8, '#34d399', 'visi_cooler'],
+      ['डीप फ्रीजर व कांटा', -1.96, 1.22, -1.45, '#a855f7', 'deep_freezers'],
+      ['मावा मशीन / भट्टी', 1.55, 1.35, -1.05, '#f97316', 'mawa_bhatti'],
+      ['बाहरी सड़क (Street)', 0, 0.24, 4.15, '#facc15'],
     ];
     const fixedLabelsGroup = new THREE.Group();
     fixedLabelsGroup.visible = detailLevelRef.current === 'FULL';
-    fixedLabels.forEach(([txt, lx, ly, lz, col]) => {
+    fixedLabels.forEach(([txt, lx, ly, lz, col, stKey]) => {
       const sp = buildFixtureLabelSprite(txt, col);
       sp.position.set(lx, ly, lz);
+      if (stKey) sp.userData.stationId = stKey;
+      sp.visible = !(stKey && activeStationsRef.current[stKey]?.active);
       fixedLabelsGroup.add(sp);
     });
     scene.add(fixedLabelsGroup);
@@ -2168,23 +2198,23 @@ export const UnifiedStore360View: React.FC<Props> = ({
         <div className="absolute top-3 left-3 right-3 flex flex-wrap items-center justify-between gap-2 pointer-events-none z-20">
           {detailLevel !== 'CLEAN' ? (
             <div className="flex flex-wrap items-center gap-1.5">
-              <span className="px-3 py-1 rounded-full bg-black/85 backdrop-blur-md text-[11px] font-bold text-emerald-300 border border-emerald-500/40 flex items-center gap-1.5 shadow">
+              <span className="px-3 py-1 rounded-full bg-slate-950/95 text-[11px] font-bold text-emerald-300 border border-emerald-500/40 flex items-center gap-1.5 shadow-md">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
                 <span>👤 लोग: {humanCount}</span>
               </span>
-              <span className="px-3 py-1 rounded-full bg-black/85 backdrop-blur-md text-[11px] font-bold text-amber-300 border border-amber-500/40 shadow">
+              <span className="px-3 py-1 rounded-full bg-slate-950/95 text-[11px] font-bold text-amber-300 border border-amber-500/40 shadow-md">
                 🏍️/🚗 वाहन: {vehicleCount}
               </span>
               {detailLevel === 'FULL' && (
-                <span className="px-3 py-1 rounded-full bg-black/85 backdrop-blur-md text-[11px] font-bold text-teal-300 border border-teal-500/40 flex items-center gap-1 shadow">
+                <span className="px-3 py-1 rounded-full bg-slate-950/95 text-[11px] font-bold text-teal-300 border border-teal-500/40 flex items-center gap-1 shadow-md">
                   <Package className="w-3.5 h-3.5" /> सामान: {objectCount}
                 </span>
               )}
-              <span className="px-3 py-1 rounded-full bg-black/85 backdrop-blur-md text-[11px] font-bold text-cyan-300 border border-cyan-500/40 flex items-center gap-1 shadow">
+              <span className="px-3 py-1 rounded-full bg-slate-950/95 text-[11px] font-bold text-cyan-300 border border-cyan-500/40 flex items-center gap-1 shadow-md">
                 <Activity className="w-3.5 h-3.5" /> सक्रिय स्टेशन: {activeStationKeys.length}
               </span>
               {activeSpeechText && (
-                <span className="px-3 py-1 rounded-full bg-emerald-950/95 backdrop-blur-md text-[11px] font-bold text-emerald-200 border border-emerald-400/50 flex items-center gap-1 shadow">
+                <span className="px-3 py-1 rounded-full bg-emerald-950 text-[11px] font-bold text-emerald-200 border border-emerald-400/50 flex items-center gap-1 shadow-md">
                   <Mic className="w-3.5 h-3.5 animate-pulse" /> “{activeSpeechText.slice(0, 36)}”
                 </span>
               )}
