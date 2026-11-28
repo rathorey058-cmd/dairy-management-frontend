@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import * as THREE from 'three';
 import {
   Compass, Play, Pause, Maximize2, Minimize2, Users,
-  DoorOpen, RotateCcw, Mic, AlertTriangle, Crosshair, Activity, Package
+  DoorOpen, RotateCcw, Mic, AlertTriangle, Crosshair, Activity, Package, Eye, EyeOff
 } from 'lucide-react';
 import { mobileYolo, type DetectedObject } from '../../services/mobileYoloService';
 import { aiBrainService } from '../../services/aiBrainService';
@@ -735,12 +735,20 @@ export const UnifiedStore360View: React.FC<Props> = ({
   const wrapperRef = useRef<HTMLDivElement | null>(null);
 
   const [autoRotate, setAutoRotate] = useState<boolean>(false);
+  const [showMapDetails, setShowMapDetails] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('dukan_3d_map_details') !== '0';
+    } catch {
+      return true;
+    }
+  });
   const [mountGracePassed, setMountGracePassed] = useState<boolean>(false);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [activePreset, setActivePreset] = useState<'DEFAULT_3D' | 'TOP_MAP' | 'COUNTER' | 'HALL' | 'STREET'>('DEFAULT_3D');
   const [liveEntities, setLiveEntities] = useState<Tracked3DEntity[]>([]);
   const [activeStations, setActiveStations] = useState<Record<string, LiveStationState>>({});
   const [focusedEntityId, setFocusedEntityId] = useState<string | null>(null);
+  const showMapDetailsRef = useRef<boolean>(showMapDetails);
 
   const orbitCurRef = useRef({
     theta: 0.22,
@@ -784,6 +792,38 @@ export const UnifiedStore360View: React.FC<Props> = ({
   const blocksGroupRef = useRef<THREE.Group | null>(null);
   const speechGroupRef = useRef<THREE.Group | null>(null);
   const stationBadgesGroupRef = useRef<THREE.Group | null>(null);
+  const fixedLabelsGroupRef = useRef<THREE.Group | null>(null);
+
+  const toggleMapDetails = useCallback(() => {
+    setShowMapDetails((prev) => {
+      const next = !prev;
+      showMapDetailsRef.current = next;
+      try {
+        localStorage.setItem('dukan_3d_map_details', next ? '1' : '0');
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    showMapDetailsRef.current = showMapDetails;
+    if (fixedLabelsGroupRef.current) fixedLabelsGroupRef.current.visible = showMapDetails;
+    if (speechGroupRef.current) speechGroupRef.current.visible = showMapDetails;
+    if (blocksGroupRef.current) blocksGroupRef.current.visible = showMapDetails;
+    if (stationBadgesGroupRef.current) {
+      stationBadgesGroupRef.current.children.forEach((ch) => {
+        if (ch.name === 'stationTextBadge') ch.visible = showMapDetails;
+      });
+    }
+    if (dynamicGroupRef.current) {
+      dynamicGroupRef.current.children.forEach((grp) => {
+        const card = grp.getObjectByName('overheadCard');
+        if (card) card.visible = showMapDetails;
+      });
+    }
+  }, [showMapDetails]);
 
   const applyCameraPreset = useCallback((preset: 'DEFAULT_3D' | 'TOP_MAP' | 'COUNTER' | 'HALL' | 'STREET') => {
     setActivePreset(preset);
@@ -1238,6 +1278,8 @@ export const UnifiedStore360View: React.FC<Props> = ({
       const meta = SHOP_STATIONS[stId];
       if (!meta || !stObj.active) return;
       const badge = buildStationActiveBadgeSprite(meta.shortLabel, stObj.intensity || 80, meta.colorHex);
+      badge.name = 'stationTextBadge';
+      badge.visible = showMapDetailsRef.current;
       badge.position.set(meta.pos[0], meta.pos[1] + 0.35, meta.pos[2]);
       grp.add(badge);
 
@@ -1250,6 +1292,7 @@ export const UnifiedStore360View: React.FC<Props> = ({
           opacity: 0.75,
         })
       );
+      ring.name = 'stationFloorRing';
       ring.rotation.x = -Math.PI / 2;
       ring.position.set(meta.pos[0], 0.035, meta.pos[2]);
       grp.add(ring);
@@ -1535,13 +1578,18 @@ export const UnifiedStore360View: React.FC<Props> = ({
       ['मावा मशीन / भट्टी', 1.55, 1.35, -1.05, '#f97316'],
       ['बाहरी सड़क (Street)', 0, 0.24, 3.85, '#facc15'],
     ];
+    const fixedLabelsGroup = new THREE.Group();
+    fixedLabelsGroup.visible = showMapDetailsRef.current;
     fixedLabels.forEach(([txt, lx, ly, lz, col]) => {
       const sp = buildFixtureLabelSprite(txt, col);
       sp.position.set(lx, ly, lz);
-      scene.add(sp);
+      fixedLabelsGroup.add(sp);
     });
+    scene.add(fixedLabelsGroup);
+    fixedLabelsGroupRef.current = fixedLabelsGroup;
 
     const blocksGroup = new THREE.Group();
+    blocksGroup.visible = showMapDetailsRef.current;
     scene.add(blocksGroup);
     blocksGroupRef.current = blocksGroup;
 
@@ -1550,6 +1598,7 @@ export const UnifiedStore360View: React.FC<Props> = ({
     stationBadgesGroupRef.current = stationBadgesGroup;
 
     const speechGroup = new THREE.Group();
+    speechGroup.visible = showMapDetailsRef.current;
     scene.add(speechGroup);
     speechGroupRef.current = speechGroup;
     if (activeSpeechText.trim()) {
@@ -1679,11 +1728,15 @@ export const UnifiedStore360View: React.FC<Props> = ({
             g.remove(prevC);
             disposeObject3D(prevC);
           }
-          g.add(buildOverheadCardSprite(ent, img));
+          const sp = buildOverheadCardSprite(ent, img);
+          sp.visible = showMapDetailsRef.current;
+          g.add(sp);
         };
         img.src = ent.cropDataUrl;
       } else {
-        g.add(buildOverheadCardSprite(ent));
+        const sp = buildOverheadCardSprite(ent);
+        sp.visible = showMapDetailsRef.current;
+        g.add(sp);
       }
     };
 
@@ -1993,6 +2046,20 @@ export const UnifiedStore360View: React.FC<Props> = ({
 
           <button
             type="button"
+            onClick={toggleMapDetails}
+            className={`px-2.5 py-1.5 rounded-xl border text-[11px] font-semibold flex items-center gap-1.5 transition ${
+              showMapDetails
+                ? 'bg-cyan-500/20 border-cyan-500/40 text-cyan-300'
+                : 'bg-slate-900 border-slate-700 text-slate-300 hover:text-white'
+            }`}
+            title={showMapDetails ? 'मैप के सभी लेबल, कार्ड और डिटेलिंग छुपाएँ' : 'मैप की डिटेलिंग वापस दिखाएँ'}
+          >
+            {showMapDetails ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+            <span>{showMapDetails ? 'डिटेलिंग छुपाएँ' : 'डिटेलिंग दिखाएँ'}</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => setAutoRotate(!autoRotate)}
             className={`px-2.5 py-1.5 rounded-xl border text-[11px] font-semibold flex items-center gap-1 transition ${
               autoRotate
@@ -2018,37 +2085,51 @@ export const UnifiedStore360View: React.FC<Props> = ({
       {/* THE ONE UNIFIED 3D VIEWPORT */}
       <div className="relative rounded-3xl overflow-hidden bg-[#080e1a] border border-cyan-500/30 shadow-2xl select-none">
         <div className="absolute top-3 left-3 right-3 flex flex-wrap items-center justify-between gap-2 pointer-events-none z-20">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="px-2.5 py-1 rounded-full bg-black/80 backdrop-blur-md text-[10px] font-bold text-emerald-300 border border-emerald-500/35 flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-              <span>👤 लोग: {humanCount}</span>
-            </span>
-            <span className="px-2.5 py-1 rounded-full bg-black/80 backdrop-blur-md text-[10px] font-bold text-amber-300 border border-amber-500/35">
-              🏍️/🚗 वाहन: {vehicleCount}
-            </span>
-            <span className="px-2.5 py-1 rounded-full bg-black/80 backdrop-blur-md text-[10px] font-bold text-teal-300 border border-teal-500/35 flex items-center gap-1">
-              <Package className="w-3 h-3" /> सामान: {objectCount}
-            </span>
-            <span className="px-2.5 py-1 rounded-full bg-black/80 backdrop-blur-md text-[10px] font-bold text-cyan-300 border border-cyan-500/35 flex items-center gap-1">
-              <Activity className="w-3 h-3" /> सक्रिय स्टेशन: {activeStationKeys.length}
-            </span>
-            {activeSpeechText && (
-              <span className="px-2.5 py-1 rounded-full bg-emerald-950/90 backdrop-blur-md text-[10px] font-bold text-emerald-200 border border-emerald-400/50 flex items-center gap-1">
-                <Mic className="w-3 h-3 animate-pulse" /> “{activeSpeechText.slice(0, 34)}”
+          {showMapDetails ? (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="px-2.5 py-1 rounded-full bg-black/80 backdrop-blur-md text-[10px] font-bold text-emerald-300 border border-emerald-500/35 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                <span>👤 लोग: {humanCount}</span>
               </span>
-            )}
-          </div>
+              <span className="px-2.5 py-1 rounded-full bg-black/80 backdrop-blur-md text-[10px] font-bold text-amber-300 border border-amber-500/35">
+                🏍️/🚗 वाहन: {vehicleCount}
+              </span>
+              <span className="px-2.5 py-1 rounded-full bg-black/80 backdrop-blur-md text-[10px] font-bold text-teal-300 border border-teal-500/35 flex items-center gap-1">
+                <Package className="w-3 h-3" /> सामान: {objectCount}
+              </span>
+              <span className="px-2.5 py-1 rounded-full bg-black/80 backdrop-blur-md text-[10px] font-bold text-cyan-300 border border-cyan-500/35 flex items-center gap-1">
+                <Activity className="w-3 h-3" /> सक्रिय स्टेशन: {activeStationKeys.length}
+              </span>
+              {activeSpeechText && (
+                <span className="px-2.5 py-1 rounded-full bg-emerald-950/90 backdrop-blur-md text-[10px] font-bold text-emerald-200 border border-emerald-400/50 flex items-center gap-1">
+                  <Mic className="w-3 h-3 animate-pulse" /> “{activeSpeechText.slice(0, 34)}”
+                </span>
+              )}
+            </div>
+          ) : (
+            <div />
+          )}
 
-          <button
-            type="button"
-            onClick={() => applyCameraPreset('DEFAULT_3D')}
-            className="pointer-events-auto px-2.5 py-1 rounded-xl bg-black/80 hover:bg-slate-800 text-[10px] font-bold text-cyan-300 border border-cyan-500/30 flex items-center gap-1"
-          >
-            <RotateCcw className="w-3 h-3" /> रीसेट व्यू
-          </button>
+          <div className="flex items-center gap-1.5 pointer-events-auto">
+            <button
+              type="button"
+              onClick={toggleMapDetails}
+              className="px-2.5 py-1 rounded-xl bg-black/80 hover:bg-slate-800 text-[10px] font-bold text-slate-200 keep-white-text border border-white/15 flex items-center gap-1"
+            >
+              {showMapDetails ? <EyeOff className="w-3 h-3 text-cyan-300" /> : <Eye className="w-3 h-3 text-emerald-300" />}
+              <span>{showMapDetails ? 'डिटेल हाइड' : 'डिटेल शो'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => applyCameraPreset('DEFAULT_3D')}
+              className="px-2.5 py-1 rounded-xl bg-black/80 hover:bg-slate-800 text-[10px] font-bold text-cyan-300 border border-cyan-500/30 flex items-center gap-1"
+            >
+              <RotateCcw className="w-3 h-3" /> रीसेट व्यू
+            </button>
+          </div>
         </div>
 
-        {(activeStationKeys.length > 0 || localActiveActions.length > 0) && (
+        {showMapDetails && (activeStationKeys.length > 0 || localActiveActions.length > 0) && (
           <div className="absolute top-11 left-3 right-3 flex flex-wrap items-center gap-1.5 z-20 pointer-events-auto">
             {activeStationKeys.map((stId) => {
               const st = activeStations[stId];
@@ -2091,8 +2172,9 @@ export const UnifiedStore360View: React.FC<Props> = ({
           className={`w-full ${isFullscreen ? 'h-[calc(100vh-150px)]' : 'h-[500px]'} cursor-grab active:cursor-grabbing`}
         />
 
-        {/* Compact Bottom-Left Live Radar List */}
-        <div className="absolute bottom-3 left-3 w-64 sm:w-72 bg-black/80 backdrop-blur-md border border-white/10 rounded-2xl p-2.5 space-y-1.5 text-[11px] z-20">
+        {/* Compact Bottom-Left Live Radar List (hidden cleanly when showMapDetails is OFF) */}
+        {showMapDetails && (
+          <div className="absolute bottom-3 left-3 w-64 sm:w-72 bg-black/80 backdrop-blur-md border border-white/10 rounded-2xl p-2.5 space-y-1.5 text-[11px] z-20">
           <div className="flex items-center justify-between text-[10px] font-bold text-cyan-300 border-b border-white/10 pb-1">
             <span>🎯 लाइव ट्रैकिंग ({liveEntities.length + activeStationKeys.length})</span>
             <span className="font-mono text-emerald-400">
@@ -2148,6 +2230,7 @@ export const UnifiedStore360View: React.FC<Props> = ({
             )}
           </div>
         </div>
+        )}
       </div>
     </div>
   );
