@@ -452,7 +452,16 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
 
     const applyTelemetryState = (tele: any, health?: any) => {
       if (!alive || !tele) return;
-      setLiveTelemetry(tele);
+      const stampedTele = {
+        ...tele,
+        updatedAt:
+          tele.updatedAt && Math.abs(Date.now() - Number(tele.updatedAt)) < 60000
+            ? Number(tele.updatedAt)
+            : health?.edgeAiOnline !== false
+            ? Date.now()
+            : tele.updatedAt,
+      };
+      setLiveTelemetry(stampedTele);
       if (health) {
         setPipelineHealth((prev) => ({
           ...prev,
@@ -1373,7 +1382,7 @@ export const UnifiedDukanNigraniWorkspace: React.FC<Props> = ({
             }`}
           >
             <Compass className="w-3.5 h-3.5" />
-            <span>🛸 3D Tesla व्यू {showTesla3D ? 'ON' : 'OFF'}</span>
+            <span>🗺️ लाइव 3D मैप {showTesla3D ? 'ON' : 'OFF'}</span>
           </button>
 
           <button
