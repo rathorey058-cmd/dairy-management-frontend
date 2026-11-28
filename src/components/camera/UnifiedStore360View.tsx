@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import * as THREE from 'three';
 import {
   Compass, Play, Pause, Maximize2, Minimize2, Users,
-  DoorOpen, RotateCcw, Mic, AlertTriangle, Crosshair, Activity, Package, Eye, EyeOff
+  DoorOpen, RotateCcw, Mic, AlertTriangle, Crosshair, Activity, Package, Eye, EyeOff, SlidersHorizontal
 } from 'lucide-react';
 import { mobileYolo, type DetectedObject } from '../../services/mobileYoloService';
 import { aiBrainService } from '../../services/aiBrainService';
@@ -546,84 +546,108 @@ function createUnifiedShopFloorTexture(): THREE.CanvasTexture {
   return tex;
 }
 
+type MapDetailLevel = 'FULL' | 'ESSENTIAL' | 'CLEAN';
+
+const CRISP_FONT = '"Noto Sans Devanagari", "Segoe UI", system-ui, -apple-system, sans-serif';
+
+function makeCrispSpriteTexture(canvas: HTMLCanvasElement): THREE.CanvasTexture {
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  // Disable mipmap downsampling blur so Hindi letters stay razor-sharp at every zoom distance
+  tex.generateMipmaps = false;
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.anisotropy = 8;
+  tex.needsUpdate = true;
+  return tex;
+}
+
 function buildFixtureLabelSprite(text: string, hexColor = '#38bdf8'): THREE.Sprite {
   const c = document.createElement('canvas');
-  c.width = 384;
-  c.height = 76;
+  c.width = 768;
+  c.height = 152;
   const ctx = c.getContext('2d')!;
-  ctx.fillStyle = 'rgba(8, 14, 26, 0.90)';
+  ctx.fillStyle = 'rgba(7, 12, 24, 0.94)';
   ctx.beginPath();
-  ctx.roundRect(4, 4, 376, 68, 16);
+  ctx.roundRect(8, 8, 752, 136, 32);
   ctx.fill();
   ctx.strokeStyle = hexColor;
-  ctx.lineWidth = 3;
+  ctx.lineWidth = 6;
   ctx.stroke();
-  ctx.fillStyle = '#ffffff';
-  ctx.font = 'bold 26px system-ui, sans-serif';
-  ctx.textAlign = 'center';
-  ctx.fillText(text, 192, 47);
 
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.SRGBColorSpace;
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.85)';
+  ctx.shadowBlur = 6;
+  ctx.fillStyle = '#ffffff';
+  ctx.font = `800 54px ${CRISP_FONT}`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, 384, 78);
+
+  const tex = makeCrispSpriteTexture(c);
   const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
-  sp.scale.set(1.55, 0.31, 1);
+  sp.scale.set(1.88, 0.37, 1);
   return sp;
 }
 
 function buildStationActiveBadgeSprite(label: string, intensity: number, borderHex: string): THREE.Sprite {
   const c = document.createElement('canvas');
-  c.width = 360;
-  c.height = 74;
+  c.width = 720;
+  c.height = 148;
   const ctx = c.getContext('2d')!;
-  ctx.fillStyle = 'rgba(6, 78, 59, 0.94)';
+  ctx.fillStyle = 'rgba(6, 78, 59, 0.96)';
   ctx.beginPath();
-  ctx.roundRect(4, 4, 352, 66, 16);
+  ctx.roundRect(8, 8, 704, 132, 30);
   ctx.fill();
   ctx.strokeStyle = borderHex;
-  ctx.lineWidth = 3;
+  ctx.lineWidth = 6;
   ctx.stroke();
-  ctx.fillStyle = '#fef08a';
-  ctx.font = 'bold 20px system-ui, sans-serif';
-  ctx.textAlign = 'center';
-  ctx.fillText(`⚡ ${label} सक्रिय (${intensity}%)`, 180, 44);
 
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.SRGBColorSpace;
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
+  ctx.shadowBlur = 5;
+  ctx.fillStyle = '#fef08a';
+  ctx.font = `800 44px ${CRISP_FONT}`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(`⚡ ${label} सक्रिय (${intensity}%)`, 360, 76);
+
+  const tex = makeCrispSpriteTexture(c);
   const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
-  sp.scale.set(1.9, 0.39, 1);
+  sp.scale.set(2.1, 0.43, 1);
   return sp;
 }
 
 function buildOverheadCardSprite(ent: Tracked3DEntity, cutImg?: HTMLImageElement): THREE.Sprite {
   const c = document.createElement('canvas');
-  c.width = 408;
-  c.height = 132;
+  c.width = 832;
+  c.height = 264;
   const ctx = c.getContext('2d')!;
 
-  ctx.fillStyle = 'rgba(9, 14, 26, 0.93)';
+  ctx.fillStyle = 'rgba(8, 13, 25, 0.95)';
   ctx.beginPath();
-  ctx.roundRect(4, 4, 400, 124, 20);
+  ctx.roundRect(8, 8, 816, 248, 38);
   ctx.fill();
 
   const hexCol = '#' + ent.color.toString(16).padStart(6, '0');
   ctx.strokeStyle = ent.fusedChannels.length > 1 ? '#38bdf8' : hexCol;
-  ctx.lineWidth = 3.5;
+  ctx.lineWidth = 7;
   ctx.stroke();
 
-  let tx = 18;
+  let tx = 36;
   if (cutImg) {
     ctx.save();
     ctx.beginPath();
-    ctx.roundRect(12, 12, 84, 108, 12);
+    ctx.roundRect(22, 22, 168, 220, 24);
     ctx.clip();
-    ctx.drawImage(cutImg, 12, 12, 84, 108);
+    ctx.drawImage(cutImg, 22, 22, 168, 220);
     ctx.restore();
-    tx = 108;
+    tx = 214;
   }
 
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.85)';
+  ctx.shadowBlur = 5;
   ctx.fillStyle = '#ffffff';
-  ctx.font = 'bold 21px system-ui, sans-serif';
-  ctx.fillText(ent.label.slice(0, 23), tx, 38);
+  ctx.font = `800 44px ${CRISP_FONT}`;
+  ctx.fillText(ent.label.slice(0, 23), tx, 76);
 
   const stateHint =
     (ent.kind === 'BIKE' || ent.kind === 'CAR') && ent.speedMps > 0.22
@@ -632,8 +656,8 @@ function buildOverheadCardSprite(ent: Tracked3DEntity, cutImg?: HTMLImageElement
 
   if (stateHint) {
     ctx.fillStyle = '#fde047';
-    ctx.font = 'bold 16px system-ui, sans-serif';
-    ctx.fillText(`⚡ ${stateHint.slice(0, 26)}`, tx, 68);
+    ctx.font = `700 33px ${CRISP_FONT}`;
+    ctx.fillText(`⚡ ${stateHint.slice(0, 26)}`, tx, 138);
   }
 
   const mins = Math.floor(ent.dwellSec / 60);
@@ -644,17 +668,16 @@ function buildOverheadCardSprite(ent: Tracked3DEntity, cutImg?: HTMLImageElement
   const confLabel = ent.confidence >= 45 ? `${ent.confidence}%` : 'LIVE';
 
   ctx.fillStyle = ent.fusedChannels.length > 1 ? '#38bdf8' : hexCol;
-  ctx.font = 'bold 16px monospace';
-  ctx.fillText(`${chBadge} • ${dwellTxt} • ${confLabel}`, tx, stateHint ? 102 : 82);
+  ctx.font = `800 32px ui-monospace, SFMono-Regular, Menlo, monospace`;
+  ctx.fillText(`${chBadge} • ${dwellTxt} • ${confLabel}`, tx, stateHint ? 206 : 168);
 
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.SRGBColorSpace;
+  const tex = makeCrispSpriteTexture(c);
   const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
   const sp = new THREE.Sprite(mat);
-  sp.scale.set(1.75, 0.56, 1);
+  sp.scale.set(2.02, 0.64, 1);
   sp.position.set(
     0,
-    ent.kind === 'CAR' ? 1.62 : ent.kind === 'BIKE' ? 1.42 : ent.kind === 'DAIRY_ASSET' ? 1.15 : 2.12,
+    ent.kind === 'CAR' ? 1.66 : ent.kind === 'BIKE' ? 1.46 : ent.kind === 'DAIRY_ASSET' ? 1.18 : 2.16,
     0
   );
   sp.name = 'overheadCard';
@@ -663,40 +686,41 @@ function buildOverheadCardSprite(ent: Tracked3DEntity, cutImg?: HTMLImageElement
 
 function build3DSpeechBubbleSprite(quoteText: string): THREE.Sprite {
   const c = document.createElement('canvas');
-  c.width = 560;
-  c.height = 112;
+  c.width = 1024;
+  c.height = 216;
   const ctx = c.getContext('2d')!;
 
-  ctx.fillStyle = 'rgba(6, 78, 59, 0.94)';
+  ctx.fillStyle = 'rgba(6, 78, 59, 0.96)';
   ctx.beginPath();
-  ctx.roundRect(6, 6, 548, 86, 22);
+  ctx.roundRect(10, 10, 1004, 168, 40);
   ctx.fill();
 
   ctx.strokeStyle = '#34d399';
-  ctx.lineWidth = 3.5;
+  ctx.lineWidth = 7;
   ctx.stroke();
 
   ctx.beginPath();
-  ctx.moveTo(265, 92);
-  ctx.lineTo(280, 110);
-  ctx.lineTo(295, 92);
+  ctx.moveTo(486, 178);
+  ctx.lineTo(512, 210);
+  ctx.lineTo(538, 178);
   ctx.closePath();
   ctx.fillStyle = '#34d399';
   ctx.fill();
 
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
+  ctx.shadowBlur = 5;
   ctx.fillStyle = '#a7f3d0';
-  ctx.font = 'bold 18px system-ui, sans-serif';
-  ctx.fillText('🎙️ काउंटर लाइव आवाज़:', 24, 34);
+  ctx.font = `800 34px ${CRISP_FONT}`;
+  ctx.fillText('🎙️ काउंटर लाइव आवाज़:', 44, 64);
 
   ctx.fillStyle = '#ffffff';
-  ctx.font = 'bold 24px system-ui, sans-serif';
+  ctx.font = `800 46px ${CRISP_FONT}`;
   const clipped = quoteText.length > 36 ? quoteText.slice(0, 35) + '…' : quoteText;
-  ctx.fillText(`“${clipped}”`, 24, 70);
+  ctx.fillText(`“${clipped}”`, 44, 134);
 
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.SRGBColorSpace;
+  const tex = makeCrispSpriteTexture(c);
   const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
-  sp.scale.set(2.35, 0.47, 1);
+  sp.scale.set(2.6, 0.55, 1);
   sp.position.set(-0.95, 2.85, 2.35);
   sp.name = 'liveSpeechSprite';
   return sp;
@@ -735,11 +759,14 @@ export const UnifiedStore360View: React.FC<Props> = ({
   const wrapperRef = useRef<HTMLDivElement | null>(null);
 
   const [autoRotate, setAutoRotate] = useState<boolean>(false);
-  const [showMapDetails, setShowMapDetails] = useState<boolean>(() => {
+  const [detailLevel, setDetailLevel] = useState<MapDetailLevel>(() => {
     try {
-      return localStorage.getItem('dukan_3d_map_details') !== '0';
+      const saved = localStorage.getItem('dukan_3d_detail_level');
+      if (saved === 'FULL' || saved === 'ESSENTIAL' || saved === 'CLEAN') return saved;
+      if (localStorage.getItem('dukan_3d_map_details') === '0') return 'CLEAN';
+      return 'FULL';
     } catch {
-      return true;
+      return 'FULL';
     }
   });
   const [mountGracePassed, setMountGracePassed] = useState<boolean>(false);
@@ -748,23 +775,23 @@ export const UnifiedStore360View: React.FC<Props> = ({
   const [liveEntities, setLiveEntities] = useState<Tracked3DEntity[]>([]);
   const [activeStations, setActiveStations] = useState<Record<string, LiveStationState>>({});
   const [focusedEntityId, setFocusedEntityId] = useState<string | null>(null);
-  const showMapDetailsRef = useRef<boolean>(showMapDetails);
+  const detailLevelRef = useRef<MapDetailLevel>(detailLevel);
 
   const orbitCurRef = useRef({
-    theta: 0.22,
-    phi: 0.66,
-    radius: 11.8,
+    theta: 0.18,
+    phi: 0.67,
+    radius: 9.3,
     targetX: 0,
-    targetY: 0.3,
-    targetZ: 0.75,
+    targetY: 0.32,
+    targetZ: 0.35,
   });
   const orbitGoalRef = useRef({
-    theta: 0.22,
-    phi: 0.66,
-    radius: 11.8,
+    theta: 0.18,
+    phi: 0.67,
+    radius: 9.3,
     targetX: 0,
-    targetY: 0.3,
-    targetZ: 0.75,
+    targetY: 0.32,
+    targetZ: 0.35,
   });
   const dragInteractionRef = useRef({
     isDragging: false,
@@ -794,36 +821,37 @@ export const UnifiedStore360View: React.FC<Props> = ({
   const stationBadgesGroupRef = useRef<THREE.Group | null>(null);
   const fixedLabelsGroupRef = useRef<THREE.Group | null>(null);
 
-  const toggleMapDetails = useCallback(() => {
-    setShowMapDetails((prev) => {
-      const next = !prev;
-      showMapDetailsRef.current = next;
-      try {
-        localStorage.setItem('dukan_3d_map_details', next ? '1' : '0');
-      } catch {
-        // ignore
-      }
-      return next;
-    });
+  const updateDetailLevel = useCallback((next: MapDetailLevel) => {
+    detailLevelRef.current = next;
+    setDetailLevel(next);
+    try {
+      localStorage.setItem('dukan_3d_detail_level', next);
+    } catch {
+      // ignore
+    }
   }, []);
 
   useEffect(() => {
-    showMapDetailsRef.current = showMapDetails;
-    if (fixedLabelsGroupRef.current) fixedLabelsGroupRef.current.visible = showMapDetails;
-    if (speechGroupRef.current) speechGroupRef.current.visible = showMapDetails;
-    if (blocksGroupRef.current) blocksGroupRef.current.visible = showMapDetails;
+    detailLevelRef.current = detailLevel;
+    const isFull = detailLevel === 'FULL';
+    const showEssential = detailLevel !== 'CLEAN';
+    if (fixedLabelsGroupRef.current) fixedLabelsGroupRef.current.visible = isFull;
+    if (blocksGroupRef.current) blocksGroupRef.current.visible = isFull;
+    if (speechGroupRef.current) speechGroupRef.current.visible = showEssential;
     if (stationBadgesGroupRef.current) {
       stationBadgesGroupRef.current.children.forEach((ch) => {
-        if (ch.name === 'stationTextBadge') ch.visible = showMapDetails;
+        if (ch.name === 'stationTextBadge') ch.visible = isFull;
       });
     }
     if (dynamicGroupRef.current) {
       dynamicGroupRef.current.children.forEach((grp) => {
+        const isPortableAsset = grp.userData?.entityKind === 'DAIRY_ASSET';
+        grp.visible = isPortableAsset ? isFull : true;
         const card = grp.getObjectByName('overheadCard');
-        if (card) card.visible = showMapDetails;
+        if (card) card.visible = isPortableAsset ? isFull : showEssential;
       });
     }
-  }, [showMapDetails]);
+  }, [detailLevel]);
 
   const applyCameraPreset = useCallback((preset: 'DEFAULT_3D' | 'TOP_MAP' | 'COUNTER' | 'HALL' | 'STREET') => {
     setActivePreset(preset);
@@ -832,33 +860,33 @@ export const UnifiedStore360View: React.FC<Props> = ({
     if (preset === 'TOP_MAP') {
       g.theta = 0;
       g.phi = 0.14;
-      g.radius = 12.6;
+      g.radius = 10.6;
       g.targetX = 0;
-      g.targetZ = 0.65;
+      g.targetZ = 0.45;
     } else if (preset === 'DEFAULT_3D') {
-      g.theta = 0.22;
-      g.phi = 0.66;
-      g.radius = 11.8;
+      g.theta = 0.18;
+      g.phi = 0.67;
+      g.radius = 9.3;
       g.targetX = 0;
-      g.targetZ = 0.75;
+      g.targetZ = 0.35;
     } else if (preset === 'COUNTER') {
       g.theta = 0.1;
       g.phi = 0.74;
-      g.radius = 5.8;
+      g.radius = 5.4;
       g.targetX = -0.55;
       g.targetZ = 1.65;
     } else if (preset === 'HALL') {
-      g.theta = -0.32;
+      g.theta = -0.3;
       g.phi = 0.64;
-      g.radius = 7.2;
+      g.radius = 6.6;
       g.targetX = 0;
-      g.targetZ = -1.75;
+      g.targetZ = -1.65;
     } else if (preset === 'STREET') {
-      g.theta = -0.16;
+      g.theta = -0.14;
       g.phi = 0.72;
-      g.radius = 9.6;
+      g.radius = 8.4;
       g.targetX = 0;
-      g.targetZ = 3.8;
+      g.targetZ = 3.6;
     }
   }, []);
 
@@ -933,6 +961,9 @@ export const UnifiedStore360View: React.FC<Props> = ({
         const ch = Number(chStr) || 1;
         const camImg = loadedCamImagesRef.current[ch];
         (chData?.detections || []).forEach((d) => {
+          // Guard against legacy low-confidence (<30%) static appliance ghosts near back wall
+          if (d.className === 'person' && d.confidence < 30) return;
+          if (d.role === 'CAN' && ch === 1 && d.box.y < 0.36) return;
           const p3 = mapDetectionToWorld(
             d.box,
             ch,
@@ -942,6 +973,7 @@ export const UnifiedStore360View: React.FC<Props> = ({
             d.worldX,
             d.worldZ
           );
+          if (d.className === 'person' && p3.z < -4.2 && d.confidence < 62) return;
           let liveCrop = d.cropDataUrl;
           if (!liveCrop && d.role !== 'CAN' && camImg && camImg.naturalWidth > 0) {
             liveCrop = cropDetectionToDataUrl(camImg, {
@@ -1187,11 +1219,23 @@ export const UnifiedStore360View: React.FC<Props> = ({
         if (cancelled) return;
 
         const scanTs = Date.now();
-        const relevant = dets.filter(
-          (d) =>
-            ['person', 'motorcycle', 'bicycle', 'car', 'truck', 'bus'].includes(d.className) ||
-            Boolean(PORTABLE_CLASS_LABELS[d.className])
-        );
+        const relevant = dets.filter((d) => {
+          if (d.className === 'person') {
+            if (d.confidence < 48 || d.box.height < 0.13 || d.box.height < d.box.width * 0.78) return false;
+            const cx = d.box.x + d.box.width / 2;
+            if (ch === 3 && cx >= 0.70 && d.box.y < 0.12 && d.confidence < 65) return false;
+            if (ch === 2 && cx >= 0.17 && cx <= 0.40 && d.box.y < 0.08 && d.confidence < 65) return false;
+            return true;
+          }
+          if (['motorcycle', 'bicycle', 'car', 'truck', 'bus'].includes(d.className)) {
+            return d.confidence >= 42;
+          }
+          if (PORTABLE_CLASS_LABELS[d.className]) {
+            if (ch === 1 && d.box.y < 0.38) return false;
+            return d.confidence >= 48;
+          }
+          return false;
+        });
 
         const chCands: RawWorldCandidate[] = relevant.slice(0, 8).map((det, idx) => {
           const isObj = Boolean(PORTABLE_CLASS_LABELS[det.className]);
@@ -1279,7 +1323,7 @@ export const UnifiedStore360View: React.FC<Props> = ({
       if (!meta || !stObj.active) return;
       const badge = buildStationActiveBadgeSprite(meta.shortLabel, stObj.intensity || 80, meta.colorHex);
       badge.name = 'stationTextBadge';
-      badge.visible = showMapDetailsRef.current;
+      badge.visible = detailLevelRef.current === 'FULL';
       badge.position.set(meta.pos[0], meta.pos[1] + 0.35, meta.pos[2]);
       grp.add(badge);
 
@@ -1339,18 +1383,22 @@ export const UnifiedStore360View: React.FC<Props> = ({
     const container = mountRef.current;
     if (!container) return;
 
-    const width = container.clientWidth || 920;
-    const height = isFullscreen ? Math.max(580, window.innerHeight - 150) : 500;
+    const width = container.clientWidth || 980;
+    const height = isFullscreen
+      ? Math.max(620, window.innerHeight - 145)
+      : Math.max(650, container.clientHeight || 660);
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x080e1a);
-    scene.fog = new THREE.FogExp2(0x080e1a, 0.014);
+    scene.fog = new THREE.FogExp2(0x080e1a, 0.011);
 
-    const camera = new THREE.PerspectiveCamera(42, width / height, 0.1, 130);
+    // 36° FOV keeps both back-wall & front-street large, proportionate, and legible without manual zooming
+    const camera = new THREE.PerspectiveCamera(36, width / height, 0.1, 130);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     renderer.setSize(width, height);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
+    // Supersample at >=1.75x even on standard 1x desktop monitors so 3D edges and Hindi labels are razor-sharp
+    renderer.setPixelRatio(Math.max(1.75, Math.min(window.devicePixelRatio || 1, 2.25)));
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -1579,7 +1627,7 @@ export const UnifiedStore360View: React.FC<Props> = ({
       ['बाहरी सड़क (Street)', 0, 0.24, 3.85, '#facc15'],
     ];
     const fixedLabelsGroup = new THREE.Group();
-    fixedLabelsGroup.visible = showMapDetailsRef.current;
+    fixedLabelsGroup.visible = detailLevelRef.current === 'FULL';
     fixedLabels.forEach(([txt, lx, ly, lz, col]) => {
       const sp = buildFixtureLabelSprite(txt, col);
       sp.position.set(lx, ly, lz);
@@ -1589,7 +1637,7 @@ export const UnifiedStore360View: React.FC<Props> = ({
     fixedLabelsGroupRef.current = fixedLabelsGroup;
 
     const blocksGroup = new THREE.Group();
-    blocksGroup.visible = showMapDetailsRef.current;
+    blocksGroup.visible = detailLevelRef.current === 'FULL';
     scene.add(blocksGroup);
     blocksGroupRef.current = blocksGroup;
 
@@ -1598,7 +1646,7 @@ export const UnifiedStore360View: React.FC<Props> = ({
     stationBadgesGroupRef.current = stationBadgesGroup;
 
     const speechGroup = new THREE.Group();
-    speechGroup.visible = showMapDetailsRef.current;
+    speechGroup.visible = detailLevelRef.current !== 'CLEAN';
     scene.add(speechGroup);
     speechGroupRef.current = speechGroup;
     if (activeSpeechText.trim()) {
@@ -1617,6 +1665,8 @@ export const UnifiedStore360View: React.FC<Props> = ({
 
     const create3DAvatar = (ent: Tracked3DEntity): THREE.Group => {
       const g = new THREE.Group();
+      g.userData.entityKind = ent.kind;
+      g.visible = ent.kind === 'DAIRY_ASSET' ? detailLevelRef.current === 'FULL' : true;
 
       if (ent.kind === 'DAIRY_ASSET') {
         const assetMat = new THREE.MeshStandardMaterial({
@@ -1720,6 +1770,8 @@ export const UnifiedStore360View: React.FC<Props> = ({
         g.remove(oldCard);
         disposeObject3D(oldCard);
       }
+      const shouldShowCard =
+        ent.kind === 'DAIRY_ASSET' ? detailLevelRef.current === 'FULL' : detailLevelRef.current !== 'CLEAN';
       if (ent.cropDataUrl) {
         const img = new Image();
         img.onload = () => {
@@ -1729,13 +1781,14 @@ export const UnifiedStore360View: React.FC<Props> = ({
             disposeObject3D(prevC);
           }
           const sp = buildOverheadCardSprite(ent, img);
-          sp.visible = showMapDetailsRef.current;
+          sp.visible =
+            ent.kind === 'DAIRY_ASSET' ? detailLevelRef.current === 'FULL' : detailLevelRef.current !== 'CLEAN';
           g.add(sp);
         };
         img.src = ent.cropDataUrl;
       } else {
         const sp = buildOverheadCardSprite(ent);
-        sp.visible = showMapDetailsRef.current;
+        sp.visible = shouldShowCard;
         g.add(sp);
       }
     };
@@ -1924,17 +1977,22 @@ export const UnifiedStore360View: React.FC<Props> = ({
 
     const handleResize = () => {
       if (!container) return;
-      const w = container.clientWidth || 920;
-      const h = document.fullscreenElement ? Math.max(580, window.innerHeight - 150) : 500;
+      const w = container.clientWidth || 980;
+      const h = document.fullscreenElement
+        ? Math.max(620, window.innerHeight - 145)
+        : Math.max(650, container.clientHeight || 660);
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
       renderer.setSize(w, h);
     };
     window.addEventListener('resize', handleResize);
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(handleResize) : null;
+    ro?.observe(container);
 
     return () => {
       cancelAnimationFrame(animId);
       window.removeEventListener('resize', handleResize);
+      ro?.disconnect();
       floorTex.dispose();
       disposeObject3D(scene);
       renderer.dispose();
@@ -2044,19 +2102,42 @@ export const UnifiedStore360View: React.FC<Props> = ({
             ))}
           </div>
 
-          <button
-            type="button"
-            onClick={toggleMapDetails}
-            className={`px-2.5 py-1.5 rounded-xl border text-[11px] font-semibold flex items-center gap-1.5 transition ${
-              showMapDetails
-                ? 'bg-cyan-500/20 border-cyan-500/40 text-cyan-300'
-                : 'bg-slate-900 border-slate-700 text-slate-300 hover:text-white'
-            }`}
-            title={showMapDetails ? 'मैप के सभी लेबल, कार्ड और डिटेलिंग छुपाएँ' : 'मैप की डिटेलिंग वापस दिखाएँ'}
+          {/* SINGLE Detailing Control (3 Smart Levels: पूरी डिटेल | ज़रूरी ट्रैक | ऑफ — reversible anytime, zero duplicate buttons!) */}
+          <div
+            className="flex items-center bg-slate-900 p-1 rounded-xl border border-slate-700/80 gap-0.5"
+            title="मैप की डिटेलिंग नियंत्रित करें: पूरी डिटेल, केवल ज़रूरी लाइव ट्रैक, या क्लीन व्यू"
           >
-            {showMapDetails ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-            <span>{showMapDetails ? 'डिटेलिंग छुपाएँ' : 'डिटेलिंग दिखाएँ'}</span>
-          </button>
+            <span className="px-1.5 text-[11px] font-semibold text-slate-400 flex items-center gap-1">
+              <SlidersHorizontal className="w-3 h-3 text-cyan-400" />
+              <span className="hidden sm:inline">डिटेल:</span>
+            </span>
+            {(
+              [
+                ['FULL', 'पूरी', Eye],
+                ['ESSENTIAL', 'ज़रूरी', Users],
+                ['CLEAN', 'ऑफ', EyeOff],
+              ] as const
+            ).map(([lvl, lbl, IconComp]) => {
+              const active = detailLevel === lvl;
+              return (
+                <button
+                  key={lvl}
+                  type="button"
+                  onClick={() => updateDetailLevel(lvl)}
+                  className={`px-2 py-1 rounded-lg text-[11px] font-semibold flex items-center gap-1 transition ${
+                    active
+                      ? lvl === 'CLEAN'
+                        ? 'bg-slate-700 text-white keep-white-text'
+                        : 'bg-emerald-600 text-white keep-white-text'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <IconComp className="w-3 h-3" />
+                  <span>{lbl}</span>
+                </button>
+              );
+            })}
+          </div>
 
           <button
             type="button"
@@ -2082,27 +2163,29 @@ export const UnifiedStore360View: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* THE ONE UNIFIED 3D VIEWPORT */}
+      {/* THE ONE UNIFIED 3D VIEWPORT — Large, Crisp & Readable Without Needing Fullscreen */}
       <div className="relative rounded-3xl overflow-hidden bg-[#080e1a] border border-cyan-500/30 shadow-2xl select-none">
         <div className="absolute top-3 left-3 right-3 flex flex-wrap items-center justify-between gap-2 pointer-events-none z-20">
-          {showMapDetails ? (
+          {detailLevel !== 'CLEAN' ? (
             <div className="flex flex-wrap items-center gap-1.5">
-              <span className="px-2.5 py-1 rounded-full bg-black/80 backdrop-blur-md text-[10px] font-bold text-emerald-300 border border-emerald-500/35 flex items-center gap-1.5">
+              <span className="px-3 py-1 rounded-full bg-black/85 backdrop-blur-md text-[11px] font-bold text-emerald-300 border border-emerald-500/40 flex items-center gap-1.5 shadow">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
                 <span>👤 लोग: {humanCount}</span>
               </span>
-              <span className="px-2.5 py-1 rounded-full bg-black/80 backdrop-blur-md text-[10px] font-bold text-amber-300 border border-amber-500/35">
+              <span className="px-3 py-1 rounded-full bg-black/85 backdrop-blur-md text-[11px] font-bold text-amber-300 border border-amber-500/40 shadow">
                 🏍️/🚗 वाहन: {vehicleCount}
               </span>
-              <span className="px-2.5 py-1 rounded-full bg-black/80 backdrop-blur-md text-[10px] font-bold text-teal-300 border border-teal-500/35 flex items-center gap-1">
-                <Package className="w-3 h-3" /> सामान: {objectCount}
-              </span>
-              <span className="px-2.5 py-1 rounded-full bg-black/80 backdrop-blur-md text-[10px] font-bold text-cyan-300 border border-cyan-500/35 flex items-center gap-1">
-                <Activity className="w-3 h-3" /> सक्रिय स्टेशन: {activeStationKeys.length}
+              {detailLevel === 'FULL' && (
+                <span className="px-3 py-1 rounded-full bg-black/85 backdrop-blur-md text-[11px] font-bold text-teal-300 border border-teal-500/40 flex items-center gap-1 shadow">
+                  <Package className="w-3.5 h-3.5" /> सामान: {objectCount}
+                </span>
+              )}
+              <span className="px-3 py-1 rounded-full bg-black/85 backdrop-blur-md text-[11px] font-bold text-cyan-300 border border-cyan-500/40 flex items-center gap-1 shadow">
+                <Activity className="w-3.5 h-3.5" /> सक्रिय स्टेशन: {activeStationKeys.length}
               </span>
               {activeSpeechText && (
-                <span className="px-2.5 py-1 rounded-full bg-emerald-950/90 backdrop-blur-md text-[10px] font-bold text-emerald-200 border border-emerald-400/50 flex items-center gap-1">
-                  <Mic className="w-3 h-3 animate-pulse" /> “{activeSpeechText.slice(0, 34)}”
+                <span className="px-3 py-1 rounded-full bg-emerald-950/95 backdrop-blur-md text-[11px] font-bold text-emerald-200 border border-emerald-400/50 flex items-center gap-1 shadow">
+                  <Mic className="w-3.5 h-3.5 animate-pulse" /> “{activeSpeechText.slice(0, 36)}”
                 </span>
               )}
             </div>
@@ -2113,24 +2196,16 @@ export const UnifiedStore360View: React.FC<Props> = ({
           <div className="flex items-center gap-1.5 pointer-events-auto">
             <button
               type="button"
-              onClick={toggleMapDetails}
-              className="px-2.5 py-1 rounded-xl bg-black/80 hover:bg-slate-800 text-[10px] font-bold text-slate-200 keep-white-text border border-white/15 flex items-center gap-1"
-            >
-              {showMapDetails ? <EyeOff className="w-3 h-3 text-cyan-300" /> : <Eye className="w-3 h-3 text-emerald-300" />}
-              <span>{showMapDetails ? 'डिटेल हाइड' : 'डिटेल शो'}</span>
-            </button>
-            <button
-              type="button"
               onClick={() => applyCameraPreset('DEFAULT_3D')}
-              className="px-2.5 py-1 rounded-xl bg-black/80 hover:bg-slate-800 text-[10px] font-bold text-cyan-300 border border-cyan-500/30 flex items-center gap-1"
+              className="px-3 py-1 rounded-xl bg-black/85 hover:bg-slate-800 text-[11px] font-bold text-cyan-300 border border-cyan-500/35 flex items-center gap-1 shadow"
             >
               <RotateCcw className="w-3 h-3" /> रीसेट व्यू
             </button>
           </div>
         </div>
 
-        {showMapDetails && (activeStationKeys.length > 0 || localActiveActions.length > 0) && (
-          <div className="absolute top-11 left-3 right-3 flex flex-wrap items-center gap-1.5 z-20 pointer-events-auto">
+        {detailLevel !== 'CLEAN' && (activeStationKeys.length > 0 || localActiveActions.length > 0) && (
+          <div className="absolute top-12 left-3 right-3 flex flex-wrap items-center gap-1.5 z-20 pointer-events-auto">
             {activeStationKeys.map((stId) => {
               const st = activeStations[stId];
               return (
@@ -2138,7 +2213,7 @@ export const UnifiedStore360View: React.FC<Props> = ({
                   key={stId}
                   type="button"
                   onClick={() => focusOnStation(stId)}
-                  className="px-2.5 py-1 rounded-xl bg-emerald-950/90 backdrop-blur-md text-[10px] font-bold text-emerald-200 border border-emerald-400/50 shadow flex items-center gap-1.5 hover:scale-[1.02] transition"
+                  className="px-3 py-1 rounded-xl bg-emerald-950/90 backdrop-blur-md text-[11px] font-bold text-emerald-200 border border-emerald-400/50 shadow flex items-center gap-1.5 hover:scale-[1.02] transition"
                 >
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
                   <span>⚡ {st.label}</span>
@@ -2148,7 +2223,7 @@ export const UnifiedStore360View: React.FC<Props> = ({
             {localActiveActions.map((la) => (
               <span
                 key={la.id}
-                className="px-2.5 py-1 rounded-xl bg-amber-950/90 backdrop-blur-md text-[10px] font-bold text-amber-200 border border-amber-400/50 shadow"
+                className="px-3 py-1 rounded-xl bg-amber-950/90 backdrop-blur-md text-[11px] font-bold text-amber-200 border border-amber-400/50 shadow"
               >
                 ⚡ {la.text}
               </span>
@@ -2169,12 +2244,12 @@ export const UnifiedStore360View: React.FC<Props> = ({
           onTouchMove={(e) => e.touches[0] && onPointerMove(e.touches[0].clientX, e.touches[0].clientY)}
           onTouchEnd={onPointerUp}
           onWheel={(e) => onWheelZoom(e.deltaY)}
-          className={`w-full ${isFullscreen ? 'h-[calc(100vh-150px)]' : 'h-[500px]'} cursor-grab active:cursor-grabbing`}
+          className={`w-full ${isFullscreen ? 'h-[calc(100vh-145px)]' : 'h-[660px] xl:h-[710px]'} cursor-grab active:cursor-grabbing`}
         />
 
-        {/* Compact Bottom-Left Live Radar List (hidden cleanly when showMapDetails is OFF) */}
-        {showMapDetails && (
-          <div className="absolute bottom-3 left-3 w-64 sm:w-72 bg-black/80 backdrop-blur-md border border-white/10 rounded-2xl p-2.5 space-y-1.5 text-[11px] z-20">
+        {/* Compact Bottom-Left Live Radar List (shown in FULL mode; hidden in ESSENTIAL & CLEAN modes so map stays spacious) */}
+        {detailLevel === 'FULL' && (
+          <div className="absolute bottom-3 left-3 w-64 sm:w-72 bg-black/85 backdrop-blur-md border border-white/15 rounded-2xl p-2.5 space-y-1.5 text-xs z-20 shadow-xl">
           <div className="flex items-center justify-between text-[10px] font-bold text-cyan-300 border-b border-white/10 pb-1">
             <span>🎯 लाइव ट्रैकिंग ({liveEntities.length + activeStationKeys.length})</span>
             <span className="font-mono text-emerald-400">
